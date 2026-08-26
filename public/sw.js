@@ -1,4 +1,4 @@
-const CACHE_NAME = "sitetrack-shell-v1";
+const CACHE_NAME = "sitetrack-shell-v2";
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [OFFLINE_URL, "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
 
@@ -24,7 +24,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (request.destination === "image" || request.url.includes("/_next/static/")) {
+  if (request.url.includes("/_next/static/")) {
+    return;
+  }
+
+  if (request.destination === "image") {
     event.respondWith(
       caches.match(request).then((cached) => {
         return (

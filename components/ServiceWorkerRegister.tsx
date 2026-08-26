@@ -7,9 +7,12 @@ export function ServiceWorkerRegister() {
     if (!("serviceWorker" in navigator) || process.env.NODE_ENV !== "production") return;
 
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        // PWA support is nice-to-have; app use should continue if registration fails.
-      });
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((registration) => registration.update())
+        .catch(() => {
+          // PWA support is nice-to-have; app use should continue if registration fails.
+        });
     });
   }, []);
 
