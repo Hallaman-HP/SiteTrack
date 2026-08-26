@@ -1,3 +1,7 @@
+-- Repair profile avatar storage policies so uploads do not call public.safe_uuid().
+-- Run this in Supabase SQL Editor if profile photo uploads fail with:
+-- "permission denied for function safe_uuid".
+
 alter table public.profiles add column if not exists avatar_path text;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

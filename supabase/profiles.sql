@@ -134,30 +134,30 @@ create policy "Users can read related profile avatars"
 on storage.objects for select to authenticated
 using (
   bucket_id = 'profile-avatars'
-  and safe_uuid(split_part(storage.objects.name, '/', 1)) = auth.uid()
+  and split_part(storage.objects.name, '/', 1) = auth.uid()::text
 );
 
 create policy "Users can upload own profile avatar"
 on storage.objects for insert to authenticated
 with check (
   bucket_id = 'profile-avatars'
-  and safe_uuid(split_part(storage.objects.name, '/', 1)) = auth.uid()
+  and split_part(storage.objects.name, '/', 1) = auth.uid()::text
 );
 
 create policy "Users can update own profile avatar"
 on storage.objects for update to authenticated
 using (
   bucket_id = 'profile-avatars'
-  and safe_uuid(split_part(storage.objects.name, '/', 1)) = auth.uid()
+  and split_part(storage.objects.name, '/', 1) = auth.uid()::text
 )
 with check (
   bucket_id = 'profile-avatars'
-  and safe_uuid(split_part(storage.objects.name, '/', 1)) = auth.uid()
+  and split_part(storage.objects.name, '/', 1) = auth.uid()::text
 );
 
 create policy "Users can delete own profile avatar"
 on storage.objects for delete to authenticated
 using (
   bucket_id = 'profile-avatars'
-  and safe_uuid(split_part(storage.objects.name, '/', 1)) = auth.uid()
+  and split_part(storage.objects.name, '/', 1) = auth.uid()::text
 );
