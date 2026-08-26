@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Boxes, Building2, Home, KeyRound, Loader2, LockKeyhole, LogOut, Map, Plus, Search, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
@@ -17,6 +18,7 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { authError, displayName, isConfigured, isLoading, profile, user, signOut } = useAuth();
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/auth/callback");
   const isSetupRoute = isAuthRoute || pathname.startsWith("/join") || pathname.startsWith("/workspace/new") || pathname.startsWith("/account");
@@ -74,7 +76,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [isConfigured, isSetupRoute, user]);
 
   function goTo(href: string) {
-    window.location.assign(href);
+    router.push(href);
   }
 
   const visibleNavItems = navItems.filter((item) => item.href !== "/assets/new" || canAddAssets);
