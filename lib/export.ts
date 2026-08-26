@@ -24,7 +24,6 @@ const headings = [
   "Location In Room",
   "Patching Details",
   "Notes",
-  "Photos",
   "Latest History Note"
 ];
 
@@ -60,7 +59,6 @@ export function buildAssetRegisterCsv(data: StoreData, options?: { siteId?: stri
       view.location_in_room,
       view.patching_details,
       view.notes,
-      view.photos.map((photo) => photo.photo_url).join(" | "),
       view.logs[0]?.notes
     ];
   });
