@@ -463,7 +463,7 @@ revoke execute on function public.set_workspace_join_code() from anon, authentic
 revoke execute on function public.touch_row_security_metadata() from anon, authenticated, public;
 revoke execute on function public.copy_photo_security_scope() from anon, authenticated, public;
 revoke execute on function public.copy_log_security_scope() from anon, authenticated, public;
-revoke execute on function public.safe_uuid(text) from anon, authenticated, public;
+revoke execute on function public.safe_uuid(text) from anon, public;
 
 grant execute on function public.accept_invite(text) to authenticated;
 grant execute on function public.join_workspace_with_code(text) to authenticated;
@@ -474,4 +474,5 @@ grant execute on function public.can_manage_site_access(uuid) to authenticated;
 grant execute on function public.can_edit_assets_on_site(uuid) to authenticated;
 grant execute on function public.has_workspace_role(uuid, workspace_role[]) to authenticated;
 grant execute on function public.is_workspace_member(uuid) to authenticated;
+grant execute on function public.safe_uuid(text) to authenticated;
 
