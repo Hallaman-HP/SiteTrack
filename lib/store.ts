@@ -86,9 +86,13 @@ function filterAssetViews(views: AssetView[], term: string) {
       asset.patching_details,
       asset.status,
       asset.site?.name,
+      asset.site?.address,
+      asset.site?.client_name,
+      asset.site?.job_number,
       asset.building?.name,
       asset.room?.room_number,
       asset.room?.room_name,
+      asset.room?.floor,
       asset.location_in_room
     ]
       .filter(Boolean)

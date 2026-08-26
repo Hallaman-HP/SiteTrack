@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AssetCard } from "@/components/AssetCard";
+import { inputClass } from "@/components/Field";
 import { SearchBox } from "@/components/SearchBox";
 import { canDeleteAssets } from "@/lib/roles";
 import { archiveAsset, restoreAsset, searchArchivedAssets, searchAssets } from "@/lib/store";
@@ -14,9 +15,34 @@ export function SearchClient() {
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [siteId, setSiteId] = useState("");
+  const [buildingId, setBuildingId] = useState("");
+  const [roomId, setRoomId] = useState("");
   const canArchive = !isSupabaseMode || canDeleteAssets(workspace?.role);
-  const results = useMemo(() => showArchived ? searchArchivedAssets(data, query) : searchAssets(data, query), [data, query, showArchived]);
+  const sites = useMemo(() => [...data.sites].sort((a, b) => a.name.localeCompare(b.name)), [data.sites]);
+  const buildings = useMemo(
+    () => data.buildings
+      .filter((building) => !siteId || building.site_id === siteId)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [data.buildings, siteId]
+  );
+  const rooms = useMemo(() => {
+    const allowedBuildingIds = new Set(buildings.map((building) => building.id));
+    return data.rooms
+      .filter((room) => (!buildingId || room.building_id === buildingId) && (!siteId || allowedBuildingIds.has(room.building_id)))
+      .sort((a, b) => `${a.floor} ${a.room_number} ${a.room_name}`.localeCompare(`${b.floor} ${b.room_number} ${b.room_name}`));
+  }, [buildings, buildingId, data.rooms, siteId]);
+  const results = useMemo(() => {
+    const source = showArchived ? searchArchivedAssets(data, query) : searchAssets(data, query);
+    return source.filter((asset) => {
+      if (siteId && asset.site_id !== siteId) return false;
+      if (buildingId && asset.building_id !== buildingId) return false;
+      if (roomId && asset.room_id !== roomId) return false;
+      return true;
+    });
+  }, [buildingId, data, query, roomId, showArchived, siteId]);
   const archivedCount = useMemo(() => data.assets.filter((asset) => asset.archived_at).length, [data.assets]);
+  const hasFilters = Boolean(query.trim() || siteId || buildingId || roomId);
 
   async function handleArchive(asset: AssetView) {
     if (!window.confirm(`Archive ${asset.asset_number} (${asset.item_name})? It will be hidden from active searches but can be restored by an admin.`)) return;
@@ -52,9 +78,74 @@ export function SearchClient() {
     <div className="grid gap-5">
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">Search assets</h1>
-        <p className="mt-2 text-steel">Asset number, serial number, item name, building, room, or patching ID.</p>
+        <p className="mt-2 text-steel">Asset number, serial number, item name, job site, building, room, or patching ID.</p>
       </div>
       <SearchBox value={query} onChange={setQuery} placeholder="Try HX-AUD-1201, SHM8A92103, L12-1242, SW12-18..." />
+      <div className="grid gap-3 rounded-[8px] border border-zinc-200 bg-white p-3 shadow-panel sm:grid-cols-3">
+        <label className="grid gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Job site</span>
+          <select
+            value={siteId}
+            onChange={(event) => {
+              setSiteId(event.target.value);
+              setBuildingId("");
+              setRoomId("");
+            }}
+            className={inputClass}
+          >
+            <option value="">All job sites</option>
+            {sites.map((site) => (
+              <option key={site.id} value={site.id}>{site.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Building</span>
+          <select
+            value={buildingId}
+            onChange={(event) => {
+              setBuildingId(event.target.value);
+              setRoomId("");
+            }}
+            className={inputClass}
+          >
+            <option value="">All buildings</option>
+            {buildings.map((building) => (
+              <option key={building.id} value={building.id}>{building.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Room</span>
+          <select value={roomId} onChange={(event) => setRoomId(event.target.value)} className={inputClass}>
+            <option value="">All rooms</option>
+            {rooms.map((room) => (
+              <option key={room.id} value={room.id}>
+                {room.room_number}{room.room_name ? ` - ${room.room_name}` : ""}{room.floor ? `, ${room.floor}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm font-medium text-steel">
+          {isLoading ? "Loading secure asset data..." : `${results.length} ${results.length === 1 ? "asset" : "assets"} found`}
+        </p>
+        {hasFilters ? (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setSiteId("");
+              setBuildingId("");
+              setRoomId("");
+            }}
+            className="rounded-[8px] border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-ink shadow-sm transition hover:-translate-y-0.5"
+          >
+            Clear search
+          </button>
+        ) : null}
+      </div>
       {canArchive && archivedCount ? (
         <div className="flex justify-end">
           <button
