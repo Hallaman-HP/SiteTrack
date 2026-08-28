@@ -39,7 +39,7 @@ export function AssetDetailClient({ id }: { id: string }) {
           <ArrowLeft size={17} />
           Search
         </Link>
-        <Link href={`/assets/${id}/edit`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-ink px-4 text-sm font-semibold text-white">
+        <Link href={`/assets/edit/?id=${id}`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-ink px-4 text-sm font-semibold text-white">
           <Edit size={17} />
           Edit Asset
         </Link>

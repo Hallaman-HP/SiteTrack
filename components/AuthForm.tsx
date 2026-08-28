@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowRight, Boxes, KeyRound, Loader2, Mail, Sparkles } from "lucide-react";
+import { ArrowRight, Boxes, KeyRound, Loader2, Mail, ShieldCheck, Sparkles } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { Field, inputClass } from "@/components/Field";
-import { supabase } from "@/lib/supabase";
+import * as api from "@/lib/api";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
-  const { isConfigured } = useAuth();
+  const { applySessionUser } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -18,33 +18,38 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [challenge, setChallenge] = useState("");
+  const [code, setCode] = useState("");
+  const [trustDevice, setTrustDevice] = useState(false);
 
   async function submitPassword(event: React.FormEvent) {
     event.preventDefault();
-    if (!supabase) return;
     setIsBusy(true);
     setError("");
     setMessage("");
     try {
       if (mode === "signup") {
-        const { error: signUpError } = await supabase.auth.signUp({
+        const result = await api.signup({
           email,
           password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-            data: {
-              first_name: firstName.trim(),
-              last_name: lastName.trim(),
-              display_name: [firstName.trim(), lastName.trim()].filter(Boolean).join(" ")
-            }
-          }
+          first_name: firstName.trim(),
+          last_name: lastName.trim()
         });
-        if (signUpError) throw signUpError;
-        setMessage("Check your email to confirm your account, then sign in.");
+        if (result.verify_email_sent) {
+          setMessage("Check your email to verify your account, then sign in.");
+        } else if (result.user) {
+          applySessionUser(result.user);
+          router.push("/account/");
+        }
       } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-        if (signInError) throw signInError;
-        router.push("/account");
+        const result = await api.login(email, password);
+        if (result.requires_2fa) {
+          setChallenge(result.challenge);
+          setMessage("We emailed you a 6-digit security code. Enter it below to finish signing in.");
+        } else if (result.user) {
+          applySessionUser(result.user);
+          router.push("/account/");
+        }
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Authentication failed.");
@@ -53,8 +58,23 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     }
   }
 
+  async function submitTwoFactor(event: React.FormEvent) {
+    event.preventDefault();
+    setIsBusy(true);
+    setError("");
+    try {
+      const result = await api.verify2fa(challenge, code.trim(), trustDevice);
+      applySessionUser(result.user);
+      router.push("/account/");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not verify the code.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function sendMagicLink() {
-    if (!supabase || !email.trim()) {
+    if (!email.trim()) {
       setError("Enter your email first.");
       return;
     }
@@ -62,13 +82,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     setError("");
     setMessage("");
     try {
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`
-        }
-      });
-      if (otpError) throw otpError;
+      await api.requestMagicLink(email.trim());
       setMessage("Magic link sent. Open it on this device to continue.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not send magic link.");
@@ -77,13 +91,52 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     }
   }
 
-  if (!isConfigured) {
+  if (challenge) {
     return (
-      <AuthCard title="Auth is ready to connect" subtitle="Add your Supabase keys to enable live signup and login.">
-        <div className="rounded-[8px] bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-          Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `.env.local`, then restart `npm run dev`.
-          The app is still in local demo mode until those are set.
-        </div>
+      <AuthCard title="Enter your security code" subtitle="We emailed a 6-digit code to confirm it is really you.">
+        <form onSubmit={submitTwoFactor} className="grid gap-4">
+          {error ? <p className="rounded-[8px] bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
+          {message ? <p className="rounded-[8px] bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{message}</p> : null}
+          <Field label="6-digit code">
+            <input
+              className={`${inputClass} text-center font-mono text-lg tracking-[0.4em]`}
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              pattern="\d{6}"
+              minLength={6}
+              maxLength={6}
+              required
+              autoComplete="one-time-code"
+              autoFocus
+            />
+          </Field>
+          <label className="flex items-center gap-2 text-sm font-medium text-ink">
+            <input
+              type="checkbox"
+              checked={trustDevice}
+              onChange={(event) => setTrustDevice(event.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300"
+            />
+            Trust this device for 7 days
+          </label>
+          <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-[8px] bg-ink px-4 text-sm font-semibold text-white shadow-panel transition hover:-translate-y-0.5" disabled={isBusy || code.length !== 6}>
+            {isBusy ? <Loader2 className="animate-spin" size={17} /> : <ShieldCheck size={17} />}
+            Verify Code
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setChallenge("");
+              setCode("");
+              setMessage("");
+              setError("");
+            }}
+            className="text-sm font-semibold text-signal"
+          >
+            Back to login
+          </button>
+        </form>
       </AuthCard>
     );
   }
@@ -127,7 +180,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           <Mail size={17} />
           Send Magic Link
         </button>
-        <Link href={mode === "signup" ? "/login" : "/signup"} className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-signal">
+        <Link href={mode === "signup" ? "/login/" : "/signup/"} className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-signal">
           {mode === "signup" ? "Already have an account?" : "Need an account?"}
           <ArrowRight size={15} />
         </Link>

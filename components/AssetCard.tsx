@@ -26,7 +26,7 @@ export function AssetCard({
   const photo = asset.photos[0]?.photo_url;
   return (
     <article className="group relative overflow-hidden rounded-[8px] border border-zinc-200 bg-white shadow-panel transition hover:-translate-y-0.5 hover:border-zinc-300">
-      <Link href={`/assets/${asset.id}`} className="grid sm:grid-cols-[168px_1fr]">
+      <Link href={`/assets/view/?id=${asset.id}`} className="grid sm:grid-cols-[168px_1fr]">
         <div className="relative aspect-[4/3] bg-zinc-100 sm:aspect-auto">
           {photo ? (
             // eslint-disable-next-line @next/next/no-img-element

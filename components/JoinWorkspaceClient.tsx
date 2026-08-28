@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, KeyRound, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { inputClass } from "@/components/Field";
-import { supabase } from "@/lib/supabase";
+import * as apiClient from "@/lib/api";
 import { setActiveWorkspaceId } from "@/lib/supabaseStore";
 
 export function JoinWorkspaceClient() {
@@ -19,29 +19,28 @@ export function JoinWorkspaceClient() {
 function JoinWorkspaceInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isConfigured, user } = useAuth();
+  const { user } = useAuth();
   const [code, setCode] = useState(searchParams.get("code") ?? "");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
 
   useEffect(() => {
-    const token = searchParams.get("token");
+    // Invite emails link to /join/?invite=<token>; older links used ?token=.
+    const token = searchParams.get("invite") ?? searchParams.get("token");
     if (token && user) void acceptInvite(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, user]);
 
   async function acceptInvite(token: string) {
-    if (!supabase) return;
     setIsBusy(true);
     setError("");
     setMessage("");
     try {
-      const { data, error: rpcError } = await supabase.rpc("accept_invite", { invite_token: token });
-      if (rpcError) throw rpcError;
-      if (data) setActiveWorkspaceId(data);
+      const result = await apiClient.acceptInvite(token);
+      if (result.workspace_id) setActiveWorkspaceId(result.workspace_id);
       setMessage("Invite accepted. Opening your workspace...");
-      window.setTimeout(() => router.push("/account"), 900);
+      window.setTimeout(() => router.push("/account/"), 900);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
@@ -51,25 +50,19 @@ function JoinWorkspaceInner() {
 
   async function joinWithCode(event: React.FormEvent) {
     event.preventDefault();
-    if (!supabase) return;
     setIsBusy(true);
     setError("");
     setMessage("");
     try {
-      const { data, error: rpcError } = await supabase.rpc("join_workspace_with_code", { code: code.trim() });
-      if (rpcError) throw rpcError;
-      if (data) setActiveWorkspaceId(data);
+      const result = await apiClient.joinWorkspace(code.trim());
+      if (result.workspace_id) setActiveWorkspaceId(result.workspace_id);
       setMessage("Workspace joined. Opening your account...");
-      window.setTimeout(() => router.push("/account"), 900);
+      window.setTimeout(() => router.push("/account/"), 900);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
       setIsBusy(false);
     }
-  }
-
-  if (!isConfigured) {
-    return <JoinShell title="Join unavailable" subtitle="Connect Supabase keys before joining a workspace." />;
   }
 
   if (!user) {

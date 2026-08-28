@@ -1,0 +1,53 @@
+# SiteTrack - Next.js static export on Apache shared hosting
+Options -Indexes
+
+# Deny access to dotfiles (.env lives at <docroot>/.env next to api/)
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+
+# Security headers (moved here from next.config.mjs, which cannot set
+# headers with output: "export")
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(self), microphone=(), geolocation=(self)"
+  # Hashed build assets can be cached forever; the service worker must not be.
+  <FilesMatch "^sw\.js$">
+    Header set Cache-Control "public, max-age=0, must-revalidate"
+    Header set Service-Worker-Allowed "/"
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Never rewrite the PHP API
+  RewriteRule ^api(/.*)?$ - [L]
+
+  # Serve existing files and directories as-is
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # /path -> /path.html (Next.js export page files)
+  RewriteCond %{REQUEST_FILENAME}.html -f
+  RewriteRule ^(.*?)/?$ $1.html [L]
+
+  # /path -> /path/index.html (trailingSlash: true export layout)
+  RewriteCond %{DOCUMENT_ROOT}/$1/index.html -f
+  RewriteRule ^(.*?)/?$ $1/index.html [L]
+</IfModule>
+
+# Everything else is a 404
+ErrorDocument 404 /404.html

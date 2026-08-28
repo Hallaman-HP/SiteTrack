@@ -17,7 +17,9 @@ const navItems = [
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const rawPathname = usePathname();
+  // trailingSlash exports report "/sites/" - normalise for nav matching.
+  const pathname = rawPathname.length > 1 ? rawPathname.replace(/\/+$/, "") : rawPathname;
   const router = useRouter();
   const { authError, displayName, isConfigured, isLoading, profile, user, signOut } = useAuth();
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/auth/callback");
@@ -29,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     function onSyncError(event: Event) {
-      setSyncError((event as CustomEvent<string>).detail || "Could not sync data to Supabase.");
+      setSyncError((event as CustomEvent<string>).detail || "Could not sync data to the server.");
       setSyncStatus("");
     }
     function onSyncStatus(event: Event) {
@@ -134,7 +136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : (
               <Link href="/login" className="inline-flex items-center gap-2 rounded-[8px] bg-ink px-3 py-2 text-sm font-semibold text-white shadow-sm">
                 <UserRound size={16} />
-                <span className="hidden sm:inline">{isConfigured ? "Login" : "Demo Mode"}</span>
+                <span className="hidden sm:inline">Login</span>
               </Link>
             )}
           </div>
@@ -147,7 +149,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setSyncError("")}
             className="mb-4 w-full rounded-[8px] bg-rose-50 px-4 py-3 text-left text-sm font-semibold text-rose-700 shadow-sm"
           >
-            Supabase sync failed: {syncError}
+            Sync failed: {syncError}
           </button>
         ) : null}
         {syncStatus ? (

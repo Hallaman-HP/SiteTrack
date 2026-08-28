@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Archive, Camera, ChevronDown, MapPin, Network, PackagePlus, RotateCcw, ScanText, Save, Sparkles, Trash2, Upload } from "lucide-react";
 import { Field, inputClass } from "@/components/Field";
+import { ScanInput } from "@/components/ScanInput";
 import { canDeleteAssets } from "@/lib/roles";
 import { archiveAsset, assetToView, deleteAsset, restoreAsset, saveAsset, saveStore } from "@/lib/store";
 import { archiveAssetInSupabase, deleteAssetFromSupabase, restoreAssetInSupabase, saveAssetToSupabase } from "@/lib/supabaseStore";
@@ -171,7 +172,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
 
   function finishAfterSave(addAnother: boolean, savedId: string | undefined, nextData: StoreData) {
     if (assetId && savedId) {
-      router.push(`/assets/${savedId}`);
+      router.push(`/assets/view/?id=${savedId}`);
       return;
     }
 
@@ -218,7 +219,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
         saveStore(next);
         setData(next);
       }
-      router.push(`/assets/${existing.id}`);
+      router.push(`/assets/view/?id=${existing.id}`);
     } catch (caught) {
       setError(getErrorMessage(caught) || "Could not restore asset.");
     }
@@ -327,10 +328,10 @@ export function AssetForm({ assetId }: { assetId?: string }) {
           <section className="grid gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink"><PackagePlus size={17} className="text-coral" />What is it?</div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Asset number"><input className={inputClass} value={draft.asset_number} onChange={(e) => update("asset_number", e.target.value)} required /></Field>
-              <Field label="Item name"><input className={inputClass} value={draft.item_name} onChange={(e) => update("item_name", e.target.value)} required /></Field>
-              <Field label="Serial number"><input className={inputClass} value={draft.serial_number} onChange={(e) => update("serial_number", e.target.value)} /></Field>
-              <Field label="Type"><input className={inputClass} value={draft.item_type} onChange={(e) => update("item_type", e.target.value)} /></Field>
+              <Field label="Asset number"><ScanInput scanTitle="Scan asset number" value={draft.asset_number} onChange={(value) => update("asset_number", value)} required /></Field>
+              <Field label="Item name"><ScanInput scanTitle="Scan item name" value={draft.item_name} onChange={(value) => update("item_name", value)} required /></Field>
+              <Field label="Serial number"><ScanInput scanTitle="Scan serial number" value={draft.serial_number} onChange={(value) => update("serial_number", value)} /></Field>
+              <Field label="Type"><ScanInput scanTitle="Scan type" value={draft.item_type} onChange={(value) => update("item_type", value)} /></Field>
             </div>
           </section>
 
@@ -353,7 +354,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
                 </select>
               </Field>
             </div>
-            <Field label="Exact spot"><input className={inputClass} value={draft.location_in_room} onChange={(e) => update("location_in_room", e.target.value)} placeholder="Rack B, ceiling grid C4, under bench..." /></Field>
+            <Field label="Exact spot"><ScanInput scanTitle="Scan location label" value={draft.location_in_room} onChange={(value) => update("location_in_room", value)} placeholder="Rack B, ceiling grid C4, under bench..." /></Field>
           </section>
 
           <section className="grid gap-3 rounded-[8px] border border-zinc-200 p-4">
@@ -431,10 +432,10 @@ export function AssetForm({ assetId }: { assetId?: string }) {
           <section className="grid gap-3 rounded-[8px] bg-blue-50/70 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink"><Network size={17} className="text-signal" />Network details</div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="MAC address"><input className={inputClass} value={draft.mac_address} onChange={(e) => update("mac_address", e.target.value)} placeholder="00:1A:2B:3C:4D:5E" /></Field>
-              <Field label="IP number"><input className={inputClass} value={draft.ip_address} onChange={(e) => update("ip_address", e.target.value)} placeholder="10.12.40.33" /></Field>
-              <Field label="Switch port"><input className={inputClass} value={draft.switch_port} onChange={(e) => update("switch_port", e.target.value)} placeholder="SW12-18 / Gi1/0/18" /></Field>
-              <Field label="Network patch"><input className={inputClass} value={draft.network_patch_number} onChange={(e) => update("network_patch_number", e.target.value)} placeholder="PP-B-18 / AUD-12-04" /></Field>
+              <Field label="MAC address"><ScanInput scanTitle="Scan MAC address" value={draft.mac_address} onChange={(value) => update("mac_address", value)} placeholder="00:1A:2B:3C:4D:5E" transform={normalizeMac} /></Field>
+              <Field label="IP number"><ScanInput scanTitle="Scan IP number" value={draft.ip_address} onChange={(value) => update("ip_address", value)} placeholder="10.12.40.33" /></Field>
+              <Field label="Switch port"><ScanInput scanTitle="Scan switch port" value={draft.switch_port} onChange={(value) => update("switch_port", value)} placeholder="SW12-18 / Gi1/0/18" /></Field>
+              <Field label="Network patch"><ScanInput scanTitle="Scan network patch" value={draft.network_patch_number} onChange={(value) => update("network_patch_number", value)} placeholder="PP-B-18 / AUD-12-04" /></Field>
             </div>
           </section>
 
@@ -444,8 +445,8 @@ export function AssetForm({ assetId }: { assetId?: string }) {
               <ChevronDown className="transition group-open:rotate-180" size={17} />
             </summary>
             <div className="grid gap-3 border-t border-zinc-100 p-4 sm:grid-cols-2">
-              <Field label="Brand"><input className={inputClass} value={draft.brand} onChange={(e) => update("brand", e.target.value)} /></Field>
-              <Field label="Model"><input className={inputClass} value={draft.model} onChange={(e) => update("model", e.target.value)} /></Field>
+              <Field label="Brand"><ScanInput scanTitle="Scan brand" value={draft.brand} onChange={(value) => update("brand", value)} /></Field>
+              <Field label="Model"><ScanInput scanTitle="Scan model" value={draft.model} onChange={(value) => update("model", value)} /></Field>
               <Field label="Status">
                 <select className={inputClass} value={draft.status} onChange={(e) => update("status", e.target.value as AssetStatus)}>
                   {statuses.map((status) => <option key={status} value={status}>{statusOptionLabel(status)}</option>)}
@@ -672,6 +673,13 @@ function findAssetOverlap(data: StoreData, draft: AssetDraft) {
   });
   const label = duplicateField?.[0] ?? "Value";
   return `${label} already exists on ${existing.asset_number} (${existing.item_name}). Open that asset or change this value before saving.`;
+}
+
+function normalizeMac(raw: string) {
+  const mac = raw.match(/\b(?:[0-9A-F]{2}[:. -]?){5}[0-9A-F]{2}\b/i)?.[0] ?? raw;
+  const hex = mac.replace(/[^0-9A-Fa-f]/g, "");
+  if (hex.length === 12) return (hex.match(/.{2}/g) ?? []).join(":").toUpperCase();
+  return raw.trim();
 }
 
 function normalizeOverlapValue(value: string) {

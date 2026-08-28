@@ -242,7 +242,7 @@ function AssetListRow({
 }) {
   return (
     <div className="grid gap-3 p-4 transition hover:bg-zinc-50 sm:grid-cols-[1fr_160px_160px_44px] sm:items-center">
-      <Link href={`/assets/${asset.id}`} className="min-w-0">
+      <Link href={`/assets/view/?id=${asset.id}`} className="min-w-0">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold tracking-tight text-ink">{asset.asset_number}</p>
@@ -253,8 +253,8 @@ function AssetListRow({
           <p className="mt-1 truncate text-sm text-steel">{asset.item_name} {asset.serial_number ? `| SN ${asset.serial_number}` : ""}</p>
         </div>
       </Link>
-      <Link href={`/assets/${asset.id}`} className="text-sm font-medium text-steel">{asset.building?.name || "No building"} / {asset.room?.room_number || "No room"}</Link>
-      <Link href={`/assets/${asset.id}`} className="truncate text-sm text-steel">{asset.network_patch_number || asset.switch_port || asset.location_in_room || "No patching"}</Link>
+      <Link href={`/assets/view/?id=${asset.id}`} className="text-sm font-medium text-steel">{asset.building?.name || "No building"} / {asset.room?.room_number || "No room"}</Link>
+      <Link href={`/assets/view/?id=${asset.id}`} className="truncate text-sm text-steel">{asset.network_patch_number || asset.switch_port || asset.location_in_room || "No patching"}</Link>
       <div className="justify-self-end">
         <AssetActionsMenu asset={asset} canArchive={canArchive} canEdit={canEdit} canDelete={canDelete} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} />
       </div>

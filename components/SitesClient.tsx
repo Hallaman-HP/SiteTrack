@@ -47,12 +47,12 @@ export function SitesClient() {
 
   async function persist(next: StoreData, operation?: PersistOperation) {
     if (isSupabaseMode) {
-      if (!operation) throw new Error("No Supabase save action was provided.");
-      window.dispatchEvent(new CustomEvent("sitetrack-sync-status", { detail: "Saving to Supabase..." }));
+      if (!operation) throw new Error("No save action was provided.");
+      window.dispatchEvent(new CustomEvent("sitetrack-sync-status", { detail: "Saving..." }));
       try {
         await operation();
         replaceData(next);
-        window.dispatchEvent(new CustomEvent("sitetrack-sync-status", { detail: "Saved to Supabase." }));
+        window.dispatchEvent(new CustomEvent("sitetrack-sync-status", { detail: "Saved." }));
       } catch (error) {
         window.dispatchEvent(new CustomEvent("sitetrack-sync-error", { detail: getErrorMessage(error) }));
         throw error;

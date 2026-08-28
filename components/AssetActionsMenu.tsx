@@ -49,7 +49,7 @@ export function AssetActionsMenu({ asset, canArchive = false, canEdit = false, c
         <div className="absolute right-0 top-11 z-20 w-44 overflow-hidden rounded-[8px] border border-zinc-200 bg-white shadow-panel">
           {canEdit ? (
             <Link
-              href={`/assets/${asset.id}/edit`}
+              href={`/assets/edit/?id=${asset.id}`}
               onClick={(event) => {
                 event.stopPropagation();
                 setIsOpen(false);

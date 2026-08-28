@@ -6,3 +6,10 @@ node_modules
 dist
 coverage
 supabase/.temp
+out
+e2e/*.png
+e2e/state.json
+e2e/photo.jpg
+server/.env
+server/uploads-dev
+tsconfig.tsbuildinfo

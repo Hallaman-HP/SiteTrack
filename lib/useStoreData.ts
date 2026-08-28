@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { loadStore, saveStore } from "@/lib/store";
-import { getActiveWorkspaceId, loadSupabaseStore, saveSupabaseStore, type WorkspaceSummary } from "@/lib/supabaseStore";
+import { getActiveWorkspaceId, loadSupabaseStore, type WorkspaceSummary } from "@/lib/supabaseStore";
 import type { StoreData } from "@/lib/types";
 
 const emptyStore: StoreData = {
@@ -113,9 +113,9 @@ export function useStoreData() {
           if (!cancelled) setLocalState(sharedState);
           return;
         } catch (error) {
-          console.error("Could not load Supabase data.", error);
+          console.error("Could not load workspace data.", error);
           window.dispatchEvent(new CustomEvent("sitetrack-sync-error", {
-            detail: error instanceof Error ? error.message : getSupabaseErrorMessage(error)
+            detail: error instanceof Error ? error.message : getSyncErrorMessage(error)
           }));
           if (!cancelled) {
             publishSharedState({
@@ -152,20 +152,11 @@ export function useStoreData() {
   }, [isConfigured, user]);
 
   function commit(next: StoreData) {
+    // When signed in, individual actions call the API directly and then push the
+    // refreshed state through replaceData/commit, so this only updates shared
+    // state. The localStorage store remains only for the signed-out fallback.
     updateSharedData(next);
-    if (isConfigured && user) {
-      window.dispatchEvent(new CustomEvent("sitetrack-sync-status", { detail: "Saving to Supabase..." }));
-      void saveSupabaseStore(next)
-        .then(() => {
-          window.dispatchEvent(new CustomEvent("sitetrack-sync-status", { detail: "Saved to Supabase." }));
-        })
-        .catch((error) => {
-          console.error("Could not save Supabase data.", error);
-          window.dispatchEvent(new CustomEvent("sitetrack-sync-error", {
-            detail: error instanceof Error ? error.message : getSupabaseErrorMessage(error)
-          }));
-        });
-    } else {
+    if (!(isConfigured && user)) {
       saveStore(next);
     }
   }
@@ -180,10 +171,10 @@ export function useStoreData() {
   ] as const;
 }
 
-function getSupabaseErrorMessage(error: unknown) {
+function getSyncErrorMessage(error: unknown) {
   if (error && typeof error === "object") {
     const value = error as { message?: string; details?: string; hint?: string; code?: string };
     return [value.message, value.details, value.hint, value.code].filter(Boolean).join(" ");
   }
-  return "Could not save Supabase data.";
+  return "Could not sync workspace data.";
 }

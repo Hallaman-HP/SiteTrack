@@ -19,6 +19,12 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
 
+  // Never intercept API traffic (auth cookies, avatars, live data).
+  const url = new URL(request.url);
+  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+    return;
+  }
+
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_URL)));
     return;

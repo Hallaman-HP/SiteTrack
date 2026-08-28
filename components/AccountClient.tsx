@@ -24,39 +24,18 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import { UserAvatar } from "@/components/UserAvatar";
 import { inputClass } from "@/components/Field";
-import { canManageJobSiteAccess, canManageWorkspace, roles, type Role } from "@/lib/roles";
-import { displayName, loadProfilesForUsers, saveCurrentUserProfile, uploadCurrentUserAvatar, type ProfileMap, type UserProfile } from "@/lib/profiles";
-import { supabase } from "@/lib/supabase";
-import { loadSupabaseStore, setActiveWorkspaceId, type WorkspaceSummary } from "@/lib/supabaseStore";
+import { canManageJobSiteAccess, canManageWorkspace, roles } from "@/lib/roles";
+import * as apiClient from "@/lib/api";
+import { displayName, profileFallback, saveCurrentUserProfile, uploadCurrentUserAvatar, type ProfileMap, type UserProfile } from "@/lib/profiles";
+import { clearSupabaseStoreCache, loadSupabaseStore, setActiveWorkspaceId, type WorkspaceSummary } from "@/lib/supabaseStore";
 import type { Site, StoreData } from "@/lib/types";
 
-type WorkspaceMember = {
-  id: string;
-  workspace_id: string;
-  user_id: string;
-  role: Role;
-  created_at: string;
-};
+type WorkspaceMember = apiClient.ApiWorkspaceMember;
+type SiteMember = apiClient.ApiSiteMember;
+type Invite = apiClient.ApiInvite;
 
-type SiteMember = {
-  id: string;
-  site_id: string;
-  user_id: string;
-  role: Role;
-  created_at: string;
-};
-
-type Invite = {
-  id: string;
-  workspace_id: string;
-  site_id: string | null;
-  email: string;
-  token: string;
-  role: Role;
-  accepted_at: string | null;
-  expires_at: string;
-  created_at: string;
-};
+const workspaceRoles = ["admin", "member"];
+const siteRoles = roles.filter((item) => item !== "admin");
 
 type AccountData = {
   store: StoreData;
@@ -103,55 +82,45 @@ export function AccountClient() {
     try {
       const result = await loadSupabaseStore();
       const workspaceId = result.workspace?.id;
-      const siteIds = result.data.sites.map((site) => site.id);
-      let activeWorkspace = result.workspace;
+      const activeWorkspace = result.workspace;
+
+      let workspaceMembers: WorkspaceMember[] = [];
+      let siteMembers: SiteMember[] = [];
+      let invites: Invite[] = [];
 
       if (workspaceId) {
-        const joinCodeResult = await supabase!.from("workspaces").select("join_code").eq("id", workspaceId).maybeSingle();
-        if (!joinCodeResult.error && activeWorkspace) {
-          activeWorkspace = { ...activeWorkspace, join_code: joinCodeResult.data?.join_code ?? undefined };
+        const membersResult = await apiClient.getMembers(workspaceId);
+        workspaceMembers = membersResult.workspace_members ?? [];
+        siteMembers = membersResult.site_members ?? [];
+
+        const canSeeInvites =
+          activeWorkspace?.role === "admin" ||
+          (activeWorkspace?.manageableSiteIds?.length ?? 0) > 0 ||
+          siteMembers.some((member) => member.user_id === user.id && canManageJobSiteAccess(member.role));
+        if (canSeeInvites) {
+          try {
+            const invitesResult = await apiClient.getInvites(workspaceId);
+            invites = invitesResult.invites ?? [];
+          } catch {
+            invites = [];
+          }
         }
       }
 
-      const ownSiteMembersResult = siteIds.length
-        ? await supabase!.from("site_members").select("*").in("site_id", siteIds).eq("user_id", user.id).order("created_at", { ascending: true })
-        : { data: [], error: null };
-      if (ownSiteMembersResult.error) throw ownSiteMembersResult.error;
-
-      const managedSiteIds = (ownSiteMembersResult.data ?? [])
-        .filter((member: any) => canManageJobSiteAccess(member.role))
-        .map((member: any) => member.site_id);
-      const canManageSomeSite = activeWorkspace?.role === "admin" || managedSiteIds.length > 0;
-
-      const [membersResult, siteMembersResult, invitesResult] = await Promise.all([
-        workspaceId && canManageSomeSite
-          ? supabase!.from("workspace_members").select("*").eq("workspace_id", workspaceId).order("created_at", { ascending: true })
-          : workspaceId
-            ? supabase!.from("workspace_members").select("*").eq("workspace_id", workspaceId).eq("user_id", user.id).order("created_at", { ascending: true })
-            : Promise.resolve({ data: [], error: null }),
-        siteIds.length && activeWorkspace?.role === "admin"
-          ? supabase!.from("site_members").select("*").in("site_id", siteIds).order("created_at", { ascending: true })
-          : managedSiteIds.length
-            ? supabase!.from("site_members").select("*").in("site_id", managedSiteIds).order("created_at", { ascending: true })
-          : siteIds.length
-            ? supabase!.from("site_members").select("*").in("site_id", siteIds).eq("user_id", user.id).order("created_at", { ascending: true })
-            : Promise.resolve({ data: [], error: null }),
-        workspaceId && activeWorkspace?.role === "admin"
-          ? supabase!.from("invites").select("*").eq("workspace_id", workspaceId).order("created_at", { ascending: false })
-          : managedSiteIds.length
-            ? supabase!.from("invites").select("*").in("site_id", managedSiteIds).order("created_at", { ascending: false })
-          : Promise.resolve({ data: [], error: null })
-      ]);
-
-      const loadError = membersResult.error || siteMembersResult.error || invitesResult.error;
-      if (loadError) throw loadError;
-      const workspaceMembers = (membersResult.data ?? []) as WorkspaceMember[];
-      const siteMembers = (siteMembersResult.data ?? []) as SiteMember[];
-      const profiles = await loadProfilesForUsers([
-        user.id,
-        ...workspaceMembers.map((member) => member.user_id),
-        ...siteMembers.map((member) => member.user_id)
-      ]);
+      // Members come back with joined email/display_name/avatar_url, so the
+      // profile map is built locally instead of a second profiles request.
+      const profiles: ProfileMap = {};
+      for (const member of [...workspaceMembers, ...siteMembers]) {
+        profiles[member.user_id] = {
+          id: member.user_id,
+          first_name: "",
+          last_name: "",
+          display_name: member.display_name || member.email,
+          avatar_url: member.avatar_url ?? ""
+        };
+      }
+      const ownProfile = profileFallback(user);
+      if (ownProfile) profiles[user.id] = ownProfile;
 
       setData({
         store: result.data,
@@ -159,7 +128,7 @@ export function AccountClient() {
         activeWorkspace,
         workspaceMembers,
         siteMembers,
-        invites: (invitesResult.data ?? []) as Invite[],
+        invites,
         profiles
       });
       setSelectedSiteId((current) => current || result.data.sites[0]?.id || "");
@@ -192,14 +161,11 @@ export function AccountClient() {
   const canManageSiteAccess = isAdmin || manageableSiteIds.length > 0;
 
   async function sendResetEmail() {
-    if (!supabase || !user?.email) return;
+    if (!user?.email) return;
     setMessage("");
     setError("");
     try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(user.email, {
-        redirectTo: `${window.location.origin}/auth/callback`
-      });
-      if (resetError) throw resetError;
+      await apiClient.resetRequest(user.email);
       setMessage("Password reset email sent.");
     } catch (caught) {
       setError(getErrorMessage(caught));
@@ -208,21 +174,14 @@ export function AccountClient() {
 
   function switchWorkspace(workspaceId: string) {
     setActiveWorkspaceId(workspaceId);
+    clearSupabaseStoreCache();
     window.location.reload();
-  }
-
-  if (!isConfigured) {
-    return (
-      <AccountShell title="Account unavailable" subtitle="Connect Supabase keys to manage a real account.">
-        <p className="rounded-[8px] bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">The app is currently in local demo mode.</p>
-      </AccountShell>
-    );
   }
 
   if (!user) {
     return (
       <AccountShell title="Sign in required" subtitle="Your account page is available after login.">
-        <Link href="/login" className="inline-flex min-h-11 items-center justify-center rounded-[8px] bg-ink px-4 text-sm font-semibold text-white">
+        <Link href="/login/" className="inline-flex min-h-11 items-center justify-center rounded-[8px] bg-ink px-4 text-sm font-semibold text-white">
           Go to Login
         </Link>
       </AccountShell>
@@ -277,7 +236,7 @@ export function AccountClient() {
             </div>
           </section>
           <ProfileCard user={user} profile={profile} onSaved={refreshProfile} onMessage={setMessage} onError={setError} />
-          <SecurityCard email={user.email ?? ""} onResetPassword={() => void sendResetEmail()} />
+          <SecurityCard email={user.email ?? ""} onResetPassword={() => void sendResetEmail()} onMessage={setMessage} onError={setError} />
         </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -350,7 +309,7 @@ export function AccountClient() {
             <ProfileCard user={user} profile={profile} onSaved={refreshProfile} onMessage={setMessage} onError={setError} />
           </div>
           <div className="lg:col-span-2">
-            <SecurityCard email={user.email ?? ""} onResetPassword={() => void sendResetEmail()} />
+            <SecurityCard email={user.email ?? ""} onResetPassword={() => void sendResetEmail()} onMessage={setMessage} onError={setError} />
           </div>
         </div>
       )}
@@ -477,13 +436,13 @@ function WorkspaceCard({
   const joinCode = activeWorkspace?.join_code ?? "";
 
   async function regenerateJoinCode() {
-    if (!supabase || !activeWorkspace) return;
+    if (!activeWorkspace) return;
     setIsRegenerating(true);
     onError("");
     onMessage("");
     try {
-      const { error } = await supabase.rpc("regenerate_workspace_join_code", { target_workspace_id: activeWorkspace.id });
-      if (error) throw error;
+      await apiClient.regenerateJoinCode(activeWorkspace.id);
+      clearSupabaseStoreCache();
       onMessage("Workspace join code regenerated.");
       await onChanged();
     } catch (caught) {
@@ -550,7 +509,7 @@ function WorkspaceCard({
             Link
           </button>
         </div>
-        {!joinCode ? <p className="mt-2 text-xs font-semibold text-amber-700">Run supabase/workspace_join_codes.sql to enable workspace codes.</p> : null}
+        {!joinCode ? <p className="mt-2 text-xs font-semibold text-amber-700">Only workspace admins can see and share the join code.</p> : null}
         {isAdmin ? (
           <button
             type="button"
@@ -591,19 +550,18 @@ function WorkspaceUsersCard({
   onError: (message: string) => void;
 }) {
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("technician");
+  const [role, setRole] = useState("member");
   const workspaceId = activeWorkspace?.id ?? "";
 
   async function inviteUser(event: React.FormEvent) {
     event.preventDefault();
-    if (!supabase || !workspaceId) return;
+    if (!workspaceId) return;
     onError("");
     onMessage("");
     try {
-      const { error } = await supabase.from("invites").insert({ workspace_id: workspaceId, email: email.trim(), role });
-      if (error) throw error;
+      await apiClient.createInvite({ workspace_id: workspaceId, email: email.trim(), role });
       setEmail("");
-      setRole("technician");
+      setRole("member");
       onMessage("Workspace invite saved. Copy the invite link from Pending invites and send it to the user.");
       await onChanged();
     } catch (caught) {
@@ -611,12 +569,10 @@ function WorkspaceUsersCard({
     }
   }
 
-  async function updateRole(memberId: string, nextRole: Role) {
-    if (!supabase) return;
+  async function updateRole(memberId: string, nextRole: string) {
     onError("");
     try {
-      const { error } = await supabase.from("workspace_members").update({ role: nextRole }).eq("id", memberId);
-      if (error) throw error;
+      await apiClient.updateWorkspaceMember(memberId, nextRole);
       onMessage("Workspace role updated.");
       await onChanged();
     } catch (caught) {
@@ -625,13 +581,12 @@ function WorkspaceUsersCard({
   }
 
   async function removeMember(memberId: string, memberUserId: string) {
-    if (!supabase || memberUserId === currentUserId) return;
+    if (memberUserId === currentUserId) return;
     const ok = window.confirm("Remove this user from the workspace?");
     if (!ok) return;
     onError("");
     try {
-      const { error } = await supabase.from("workspace_members").delete().eq("id", memberId);
-      if (error) throw error;
+      await apiClient.removeWorkspaceMember(memberId);
       onMessage("Workspace member removed.");
       await onChanged();
     } catch (caught) {
@@ -653,11 +608,11 @@ function WorkspaceUsersCard({
               <UserAvatar profile={profiles[member.user_id]} fallback={member.user_id} size="sm" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-ink">{memberLabel(member.user_id, currentUserId, profiles, currentUserEmail)}</p>
-                <p className="mt-1 text-xs text-steel">{member.user_id === currentUserId ? "You" : `ID ${member.user_id.slice(0, 8)}`}</p>
+                <p className="mt-1 truncate text-xs text-steel">{member.user_id === currentUserId ? "You" : member.email}</p>
               </div>
             </div>
-            <select className={inputClass} value={member.role} disabled={!isAdmin} onChange={(event) => void updateRole(member.id, event.target.value as Role)}>
-              {roles.map((item) => <option key={item} value={item}>{item}</option>)}
+            <select className={inputClass} value={member.role} disabled={!isAdmin} onChange={(event) => void updateRole(member.id, event.target.value)}>
+              {Array.from(new Set([member.role, ...workspaceRoles])).map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
             <button
               type="button"
@@ -675,8 +630,8 @@ function WorkspaceUsersCard({
       {isAdmin ? (
         <form onSubmit={inviteUser} className="mt-4 grid gap-2 rounded-[8px] border border-zinc-200 bg-white p-3 sm:grid-cols-[1fr_150px_110px]">
           <input className={inputClass} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="user@company.com" required />
-          <select className={inputClass} value={role} onChange={(event) => setRole(event.target.value as Role)}>
-            {roles.map((item) => <option key={item} value={item}>{item}</option>)}
+          <select className={inputClass} value={role} onChange={(event) => setRole(event.target.value)}>
+            {workspaceRoles.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
           <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-ink px-3 text-sm font-semibold text-white">
             <UserPlus size={16} />
@@ -712,14 +667,13 @@ function MemberWorkspaceCard({
   const membership = members.find((member) => member.user_id === currentUserId);
 
   async function leaveWorkspace() {
-    if (!supabase || !activeWorkspace || !membership) return;
+    if (!activeWorkspace || !membership) return;
     const ok = window.confirm("Leave this workspace? You will lose access until an admin invites you again.");
     if (!ok) return;
     onError("");
     onMessage("");
     try {
-      const { error } = await supabase.from("workspace_members").delete().eq("id", membership.id).eq("user_id", currentUserId);
-      if (error) throw error;
+      await apiClient.removeWorkspaceMember(membership.id);
       setActiveWorkspaceId("");
       onMessage("You left the workspace.");
       await onChanged();
@@ -780,20 +734,19 @@ function JobSiteAccessCard({
   onError: (message: string) => void;
 }) {
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("technician");
+  const [role, setRole] = useState("technician");
   const [memberUserId, setMemberUserId] = useState("");
   const selectedSite = sites.find((site) => site.id === selectedSiteId) ?? sites[0];
   const selectedSiteMembers = selectedSite ? siteMembers.filter((member) => member.site_id === selectedSite.id) : [];
   const selectedInvites = selectedSite ? invites.filter((invite) => invite.site_id === selectedSite.id) : [];
-  const grantableRoles = canGrantAdmin ? roles : roles.filter((item) => item !== "admin");
+  const grantableRoles = siteRoles;
 
   async function addExistingMember(event: React.FormEvent) {
     event.preventDefault();
-    if (!supabase || !selectedSite || !memberUserId) return;
+    if (!selectedSite || !memberUserId) return;
     onError("");
     try {
-      const { error } = await supabase.from("site_members").upsert({ site_id: selectedSite.id, user_id: memberUserId, role });
-      if (error) throw error;
+      await apiClient.upsertSiteMember(selectedSite.id, memberUserId, role);
       setMemberUserId("");
       setRole("technician");
       onMessage("Job-site access updated.");
@@ -805,11 +758,10 @@ function JobSiteAccessCard({
 
   async function inviteToSite(event: React.FormEvent) {
     event.preventDefault();
-    if (!supabase || !selectedSite || !workspaceId) return;
+    if (!selectedSite || !workspaceId) return;
     onError("");
     try {
-      const { error } = await supabase.from("invites").insert({ workspace_id: workspaceId, site_id: selectedSite.id, email: email.trim(), role });
-      if (error) throw error;
+      await apiClient.createInvite({ workspace_id: workspaceId, site_id: selectedSite.id, email: email.trim(), role });
       setEmail("");
       setRole("technician");
       onMessage("Job-site invite saved. Copy the invite link from Pending invites and send it to the user.");
@@ -819,12 +771,10 @@ function JobSiteAccessCard({
     }
   }
 
-  async function updateSiteRole(memberId: string, nextRole: Role) {
-    if (!supabase) return;
+  async function updateSiteRole(memberId: string, nextRole: string) {
     onError("");
     try {
-      const { error } = await supabase.from("site_members").update({ role: nextRole }).eq("id", memberId);
-      if (error) throw error;
+      await apiClient.updateSiteMember(memberId, nextRole);
       onMessage("Job-site role updated.");
       await onChanged();
     } catch (caught) {
@@ -833,13 +783,11 @@ function JobSiteAccessCard({
   }
 
   async function removeSiteMember(memberId: string) {
-    if (!supabase) return;
     const ok = window.confirm("Remove this user's job-site access?");
     if (!ok) return;
     onError("");
     try {
-      const { error } = await supabase.from("site_members").delete().eq("id", memberId);
-      if (error) throw error;
+      await apiClient.removeSiteMember(memberId);
       onMessage("Job-site access removed.");
       await onChanged();
     } catch (caught) {
@@ -866,8 +814,8 @@ function JobSiteAccessCard({
                   <p className="truncate text-sm font-semibold text-ink">{memberLabel(member.user_id, currentUserId, profiles)}</p>
                 </div>
                 <div className="grid grid-cols-[1fr_40px] gap-2">
-                  <select className={inputClass} value={member.role} disabled={!canGrantAdmin && member.role === "admin"} onChange={(event) => void updateSiteRole(member.id, event.target.value as Role)}>
-                    {(member.role === "admin" && !canGrantAdmin ? roles : grantableRoles).map((item) => <option key={item} value={item}>{item}</option>)}
+                  <select className={inputClass} value={member.role} disabled={!canGrantAdmin && member.role === "admin"} onChange={(event) => void updateSiteRole(member.id, event.target.value)}>
+                    {Array.from(new Set([member.role, ...grantableRoles])).map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
                   <button
                     type="button"
@@ -895,7 +843,7 @@ function JobSiteAccessCard({
                 </option>
               ))}
             </select>
-            <select className={inputClass} value={role} onChange={(event) => setRole(event.target.value as Role)}>
+            <select className={inputClass} value={role} onChange={(event) => setRole(event.target.value)}>
               {grantableRoles.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
             <button className="inline-flex min-h-11 items-center justify-center rounded-[8px] bg-ink px-3 text-sm font-semibold text-white">Add Access</button>
@@ -904,7 +852,7 @@ function JobSiteAccessCard({
           <form onSubmit={inviteToSite} className="grid gap-2 rounded-[8px] border border-zinc-200 p-3">
             <p className="text-sm font-semibold text-ink">Invite by email to this job site</p>
             <input className={inputClass} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="user@company.com" required />
-            <select className={inputClass} value={role} onChange={(event) => setRole(event.target.value as Role)}>
+            <select className={inputClass} value={role} onChange={(event) => setRole(event.target.value)}>
               {grantableRoles.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
             <button className="inline-flex min-h-11 items-center justify-center rounded-[8px] bg-ink px-3 text-sm font-semibold text-white">Invite to Site</button>
@@ -937,14 +885,12 @@ function MemberSitesCard({
   onError: (message: string) => void;
 }) {
   async function leaveSite(memberId: string) {
-    if (!supabase) return;
     const ok = window.confirm("Leave this job site? You will lose access until an admin grants it again.");
     if (!ok) return;
     onError("");
     onMessage("");
     try {
-      const { error } = await supabase.from("site_members").delete().eq("id", memberId).eq("user_id", currentUserId);
-      if (error) throw error;
+      await apiClient.removeSiteMember(memberId);
       onMessage("You left the job site.");
       await onChanged();
     } catch (caught) {
@@ -1026,7 +972,8 @@ function PendingInvites({
 
 function buildJoinUrl(kind: "code" | "token", value: string) {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  return `${origin}/join?${kind}=${encodeURIComponent(value)}`;
+  const param = kind === "token" ? "invite" : "code";
+  return `${origin}/join/?${param}=${encodeURIComponent(value)}`;
 }
 
 function memberLabel(userId: string, currentUserId: string, profiles: ProfileMap, fallback?: string) {
@@ -1050,7 +997,38 @@ async function copyText(
   }
 }
 
-function SecurityCard({ email, onResetPassword }: { email: string; onResetPassword: () => void }) {
+function SecurityCard({
+  email,
+  onResetPassword,
+  onMessage,
+  onError
+}: {
+  email: string;
+  onResetPassword: () => void;
+  onMessage: (message: string) => void;
+  onError: (message: string) => void;
+}) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [isChanging, setIsChanging] = useState(false);
+
+  async function changePassword(event: React.FormEvent) {
+    event.preventDefault();
+    onError("");
+    onMessage("");
+    setIsChanging(true);
+    try {
+      await apiClient.changePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      onMessage("Password changed.");
+    } catch (caught) {
+      onError(getErrorMessage(caught));
+    } finally {
+      setIsChanging(false);
+    }
+  }
+
   return (
     <section className="rounded-[8px] border border-zinc-200 bg-white p-5 shadow-panel">
       <p className="inline-flex items-center gap-2 text-sm font-semibold text-ink"><LockKeyhole size={17} className="text-mint" />Security</p>
@@ -1060,17 +1038,45 @@ function SecurityCard({ email, onResetPassword }: { email: string; onResetPasswo
           <p className="mt-1 break-all text-steel">{email}</p>
         </div>
         <div className="rounded-[8px] bg-zinc-50 p-3">
-          <p className="font-semibold text-ink">MFA</p>
-          <p className="mt-1 text-steel">Not enabled yet</p>
+          <p className="font-semibold text-ink">Two-factor authentication</p>
+          <p className="mt-1 text-steel">A 6-digit email code is required when signing in from a new device.</p>
         </div>
       </div>
+      <form onSubmit={changePassword} className="mt-4 grid gap-2 rounded-[8px] border border-zinc-200 p-3 sm:grid-cols-[1fr_1fr_auto]">
+        <input
+          className={inputClass}
+          type="password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          placeholder="Current password"
+          required
+          autoComplete="current-password"
+        />
+        <input
+          className={inputClass}
+          type="password"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          placeholder="New password"
+          required
+          minLength={6}
+          autoComplete="new-password"
+        />
+        <button
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-ink px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+          disabled={isChanging}
+        >
+          <KeyRound size={16} />
+          {isChanging ? "Changing..." : "Change Password"}
+        </button>
+      </form>
       <button
         type="button"
         onClick={onResetPassword}
-        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[8px] border border-zinc-200 bg-white px-4 text-sm font-semibold text-ink shadow-sm transition hover:-translate-y-0.5"
+        className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-[8px] border border-zinc-200 bg-white px-4 text-sm font-semibold text-ink shadow-sm transition hover:-translate-y-0.5"
       >
         <Mail size={17} />
-        Send Password Reset
+        Send Password Reset Email
       </button>
     </section>
   );

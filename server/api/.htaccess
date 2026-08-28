@@ -1,0 +1,16 @@
+# SiteTrack API — Apache rewrite + hardening (GoDaddy shared hosting)
+
+# Never serve .env files (belt and braces; .env lives at server root, not here).
+<FilesMatch "^\.env">
+  Require all denied
+</FilesMatch>
+
+RewriteEngine On
+
+# Deny direct access to source files.
+RewriteRule ^src(/|$) - [F,L]
+RewriteRule ^\.env - [F,L]
+
+# Route everything under /api to the front controller.
+RewriteCond %{REQUEST_URI} !/api/index\.php$
+RewriteRule ^ index.php [L]
