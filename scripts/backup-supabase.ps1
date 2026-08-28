@@ -3,8 +3,11 @@ param(
   [string]$OutputRoot = "backups",
   [string[]]$Buckets = @("asset-photos", "profile-avatars"),
   [string]$DatabasePassword = "",
+  [string]$SupabaseUrl = "",
+  [string]$ServiceRoleKey = "",
   [switch]$SkipDatabase,
   [switch]$SkipStorage,
+  [switch]$SkipEmbeddedPhotos,
   [switch]$ContinueOnError
 )
 
@@ -47,11 +50,96 @@ function Test-DockerAvailable {
   return $LASTEXITCODE -eq 0
 }
 
+function Get-DotEnvValue {
+  param([string]$Name)
+
+  $envFile = Join-Path (Get-Location) ".env.local"
+  if (-not (Test-Path -LiteralPath $envFile)) { return "" }
+
+  $line = Get-Content -LiteralPath $envFile | Where-Object { $_ -match "^\s*$([regex]::Escape($Name))\s*=" } | Select-Object -First 1
+  if (-not $line) { return "" }
+
+  return ($line -replace "^\s*$([regex]::Escape($Name))\s*=\s*", "").Trim().Trim('"').Trim("'")
+}
+
+function Export-EmbeddedAssetPhotos {
+  param(
+    [string]$BackupDir,
+    [string]$ApiUrl,
+    [string]$ApiKey
+  )
+
+  if (-not $ApiUrl.Trim()) {
+    throw "Embedded photo export needs -SupabaseUrl or NEXT_PUBLIC_SUPABASE_URL in .env.local."
+  }
+  if (-not $ApiKey.Trim()) {
+    throw "Embedded photo export needs -ServiceRoleKey or SUPABASE_SERVICE_ROLE_KEY set in this PowerShell session."
+  }
+
+  $photoDir = Join-Path $BackupDir "database-embedded-photos"
+  New-Item -ItemType Directory -Force -Path $photoDir | Out-Null
+
+  $headers = @{
+    apikey = $ApiKey
+    Authorization = "Bearer $ApiKey"
+  }
+  $manifest = @()
+  $offset = 0
+  $limit = 500
+
+  while ($true) {
+    $from = $offset
+    $to = $offset + $limit - 1
+    $headers["Range"] = "$from-$to"
+    $uri = "$($ApiUrl.TrimEnd('/'))/rest/v1/asset_photos?select=id,asset_id,photo_url,caption,created_at&order=created_at.desc"
+    $rows = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
+    if (-not $rows -or $rows.Count -eq 0) { break }
+
+    foreach ($row in $rows) {
+      $assetDir = Join-Path $photoDir $row.asset_id
+      New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+
+      $photoUrl = [string]$row.photo_url
+      $savedPath = ""
+      $kind = "reference"
+
+      if ($photoUrl -match "^data:image/([^;]+);base64,(.+)$") {
+        $extension = $Matches[1].ToLower()
+        if ($extension -eq "jpeg") { $extension = "jpg" }
+        $bytes = [Convert]::FromBase64String($Matches[2])
+        $savedPath = Join-Path $assetDir "$($row.id).$extension"
+        [IO.File]::WriteAllBytes($savedPath, $bytes)
+        $kind = "embedded-data-url"
+      } else {
+        $savedPath = Join-Path $assetDir "$($row.id).url.txt"
+        Set-Content -LiteralPath $savedPath -Value $photoUrl -Encoding UTF8
+      }
+
+      $manifest += [pscustomobject]@{
+        id = $row.id
+        asset_id = $row.asset_id
+        caption = $row.caption
+        created_at = $row.created_at
+        kind = $kind
+        file = $savedPath
+      }
+    }
+
+    if ($rows.Count -lt $limit) { break }
+    $offset += $limit
+  }
+
+  $manifestPath = Join-Path $photoDir "manifest.csv"
+  $manifest | Export-Csv -LiteralPath $manifestPath -NoTypeInformation -Encoding UTF8
+  return $manifest.Count
+}
+
 function New-BackupReadme {
   param(
     [string]$BackupDir,
     [string]$DatabaseFile,
-    [string[]]$DownloadedBuckets
+    [string[]]$DownloadedBuckets,
+    [int]$EmbeddedPhotoCount
   )
 
   $bucketList = if ($DownloadedBuckets.Count) {
@@ -70,6 +158,7 @@ Project ref: $ProjectRef
 
 - database/$([System.IO.Path]::GetFileName($DatabaseFile))
 $bucketList
+- database-embedded-photos/ ($EmbeddedPhotoCount asset photo records exported)
 - backup-log.txt
 
 ## Restore Notes
@@ -102,6 +191,7 @@ try {
   Invoke-Supabase -Arguments @("--version")
 
   $downloadedBuckets = @()
+  $embeddedPhotoCount = 0
   $databaseFile = Join-Path $databaseDir "sitetrack-database.sql"
   $failedSteps = @()
 
@@ -144,7 +234,20 @@ try {
     }
   }
 
-  New-BackupReadme -BackupDir $backupDir -DatabaseFile $databaseFile -DownloadedBuckets $downloadedBuckets
+  if (-not $SkipEmbeddedPhotos) {
+    Write-Step "Exporting embedded asset photos from database rows"
+    try {
+      $apiUrl = if ($SupabaseUrl.Trim()) { $SupabaseUrl } else { Get-DotEnvValue -Name "NEXT_PUBLIC_SUPABASE_URL" }
+      $apiKey = if ($ServiceRoleKey.Trim()) { $ServiceRoleKey } else { [Environment]::GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY") }
+      $embeddedPhotoCount = Export-EmbeddedAssetPhotos -BackupDir $backupDir -ApiUrl $apiUrl -ApiKey $apiKey
+    } catch {
+      $failedSteps += $_.Exception.Message
+      if (-not $ContinueOnError) { throw }
+      Write-Warning $_.Exception.Message
+    }
+  }
+
+  New-BackupReadme -BackupDir $backupDir -DatabaseFile $databaseFile -DownloadedBuckets $downloadedBuckets -EmbeddedPhotoCount $embeddedPhotoCount
 
   Write-Host ""
   if ($failedSteps.Count) {

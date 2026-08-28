@@ -25,8 +25,24 @@ It includes:
 - `database/sitetrack-database.sql`
 - `storage/asset-photos/`
 - `storage/profile-avatars/`
+- `database-embedded-photos/`
 - `README-restore-steps.md`
 - `backup-log.txt`
+
+Asset photos created by the current app may be stored in the database as `data:image/...` values instead of Supabase Storage files. To export those into real image files, provide your Supabase service-role key for the backup run.
+
+For this PowerShell session only:
+
+```powershell
+$env:SUPABASE_SERVICE_ROLE_KEY = "YOUR_SUPABASE_SERVICE_ROLE_KEY"
+powershell -ExecutionPolicy Bypass -File scripts/backup-supabase.ps1 -SkipDatabase -ContinueOnError
+```
+
+The exported embedded photos will be written to:
+
+```text
+backups/sitetrack-yyyy-MM-dd_HH-mm-ss/database-embedded-photos/
+```
 
 If Supabase asks for your database password, rerun with:
 
