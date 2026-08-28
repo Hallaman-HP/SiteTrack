@@ -264,6 +264,7 @@ drop policy if exists "Assigned users can read assets" on assets;
 drop policy if exists "Admins and technicians can insert assets" on assets;
 drop policy if exists "Admins and technicians can update assets" on assets;
 drop policy if exists "Admins can delete assets" on assets;
+drop policy if exists "Managers can delete assets" on assets;
 create policy "Assigned users can read assets"
 on assets for select to authenticated
 using (app_private.can_access_site(site_id));
@@ -274,14 +275,15 @@ create policy "Admins and technicians can update assets"
 on assets for update to authenticated
 using (app_private.can_edit_assets_on_site(site_id))
 with check (app_private.can_edit_assets_on_site(site_id));
-create policy "Admins can delete assets"
+create policy "Managers can delete assets"
 on assets for delete to authenticated
-using (app_private.can_admin_site(site_id));
+using (app_private.can_manage_site_access(site_id));
 
 drop policy if exists "Members can read asset photos" on asset_photos;
 drop policy if exists "Asset editors can insert photos" on asset_photos;
 drop policy if exists "Asset editors can update photos" on asset_photos;
 drop policy if exists "Admins can delete photos" on asset_photos;
+drop policy if exists "Managers can delete photos" on asset_photos;
 create policy "Members can read asset photos"
 on asset_photos for select to authenticated
 using (exists (select 1 from assets where assets.id = asset_photos.asset_id and app_private.can_access_site(assets.site_id)));
@@ -292,22 +294,23 @@ create policy "Asset editors can update photos"
 on asset_photos for update to authenticated
 using (exists (select 1 from assets where assets.id = asset_photos.asset_id and app_private.can_edit_assets_on_site(assets.site_id)))
 with check (exists (select 1 from assets where assets.id = asset_photos.asset_id and app_private.can_edit_assets_on_site(assets.site_id)));
-create policy "Admins can delete photos"
+create policy "Managers can delete photos"
 on asset_photos for delete to authenticated
-using (exists (select 1 from assets where assets.id = asset_photos.asset_id and app_private.can_admin_site(assets.site_id)));
+using (exists (select 1 from assets where assets.id = asset_photos.asset_id and app_private.can_manage_site_access(assets.site_id)));
 
 drop policy if exists "Members can read asset logs" on asset_logs;
 drop policy if exists "Asset editors can insert logs" on asset_logs;
 drop policy if exists "Admins can delete logs" on asset_logs;
+drop policy if exists "Managers can delete logs" on asset_logs;
 create policy "Members can read asset logs"
 on asset_logs for select to authenticated
 using (exists (select 1 from assets where assets.id = asset_logs.asset_id and app_private.can_access_site(assets.site_id)));
 create policy "Asset editors can insert logs"
 on asset_logs for insert to authenticated
 with check (exists (select 1 from assets where assets.id = asset_logs.asset_id and app_private.can_edit_assets_on_site(assets.site_id)));
-create policy "Admins can delete logs"
+create policy "Managers can delete logs"
 on asset_logs for delete to authenticated
-using (exists (select 1 from assets where assets.id = asset_logs.asset_id and app_private.can_admin_site(assets.site_id)));
+using (exists (select 1 from assets where assets.id = asset_logs.asset_id and app_private.can_manage_site_access(assets.site_id)));
 
 create or replace function app_private.join_workspace_with_code_impl(code text)
 returns uuid

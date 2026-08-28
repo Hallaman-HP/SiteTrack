@@ -15,5 +15,5 @@ export function canManageWorkspace(role?: string) {
 }
 
 export function canDeleteAssets(role?: string) {
-  return role === "admin";
+  return role === "admin" || role === "manager";
 }
