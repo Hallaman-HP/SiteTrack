@@ -4,7 +4,8 @@ param(
   [string[]]$Buckets = @("asset-photos", "profile-avatars"),
   [string]$DatabasePassword = "",
   [switch]$SkipDatabase,
-  [switch]$SkipStorage
+  [switch]$SkipStorage,
+  [switch]$ContinueOnError
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,9 @@ function Invoke-Supabase {
   $supabaseCommand = Get-Command supabase -ErrorAction SilentlyContinue
   if ($supabaseCommand) {
     & supabase @Arguments
+    if ($LASTEXITCODE -ne 0) {
+      throw "Supabase CLI failed with exit code $LASTEXITCODE`: supabase $($Arguments -join ' ')"
+    }
     return
   }
 
@@ -30,6 +34,17 @@ function Invoke-Supabase {
   }
 
   & npx supabase @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "Supabase CLI failed with exit code $LASTEXITCODE`: npx supabase $($Arguments -join ' ')"
+  }
+}
+
+function Test-DockerAvailable {
+  $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+  if (-not $dockerCommand) { return $false }
+
+  & docker info *> $null
+  return $LASTEXITCODE -eq 0
 }
 
 function New-BackupReadme {
@@ -88,14 +103,27 @@ try {
 
   $downloadedBuckets = @()
   $databaseFile = Join-Path $databaseDir "sitetrack-database.sql"
+  $failedSteps = @()
 
   if (-not $SkipDatabase) {
     Write-Step "Exporting database"
-    $dbArgs = @("db", "dump", "--project-ref", $ProjectRef, "--file", $databaseFile)
-    if ($DatabasePassword.Trim()) {
-      $dbArgs += @("--password", $DatabasePassword)
+    if (-not (Test-DockerAvailable)) {
+      $message = "Database export skipped because Supabase CLI db dump requires Docker Desktop to be installed and running."
+      Write-Warning $message
+      $failedSteps += $message
+    } else {
+      try {
+        $dbArgs = @("db", "dump", "--project-ref", $ProjectRef, "--file", $databaseFile)
+        if ($DatabasePassword.Trim()) {
+          $dbArgs += @("--password", $DatabasePassword)
+        }
+        Invoke-Supabase -Arguments $dbArgs
+      } catch {
+        $failedSteps += $_.Exception.Message
+        if (-not $ContinueOnError) { throw }
+        Write-Warning $_.Exception.Message
+      }
     }
-    Invoke-Supabase -Arguments $dbArgs
   }
 
   if (-not $SkipStorage) {
@@ -105,15 +133,26 @@ try {
       Write-Step "Downloading Storage bucket '$bucket'"
       $bucketDest = Join-Path $storageDir $bucket
       New-Item -ItemType Directory -Force -Path $bucketDest | Out-Null
-      Invoke-Supabase -Arguments @("storage", "cp", "--recursive", "--project-ref", $ProjectRef, "ss:///$bucket", $bucketDest)
-      $downloadedBuckets += $bucket
+      try {
+        Invoke-Supabase -Arguments @("--experimental", "storage", "cp", "--recursive", "--project-ref", $ProjectRef, "ss:///$bucket", $bucketDest)
+        $downloadedBuckets += $bucket
+      } catch {
+        $failedSteps += $_.Exception.Message
+        if (-not $ContinueOnError) { throw }
+        Write-Warning $_.Exception.Message
+      }
     }
   }
 
   New-BackupReadme -BackupDir $backupDir -DatabaseFile $databaseFile -DownloadedBuckets $downloadedBuckets
 
   Write-Host ""
-  Write-Host "Backup complete:" -ForegroundColor Green
+  if ($failedSteps.Count) {
+    Write-Host "Backup finished with warnings:" -ForegroundColor Yellow
+    $failedSteps | ForEach-Object { Write-Host "- $_" -ForegroundColor Yellow }
+  } else {
+    Write-Host "Backup complete:" -ForegroundColor Green
+  }
   Write-Host (Resolve-Path $backupDir)
 } finally {
   Stop-Transcript | Out-Null

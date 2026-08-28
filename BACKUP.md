@@ -6,6 +6,14 @@ Use the PowerShell backup script to export the Supabase database plus Storage ph
 npm run backup:supabase
 ```
 
+The database dump step requires Docker Desktop to be installed and running, because Supabase CLI runs `pg_dump` through Docker.
+
+If you only want to download photos for now, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/backup-supabase.ps1 -SkipDatabase
+```
+
 The backup is written to:
 
 ```text
@@ -36,6 +44,12 @@ To back up only Storage photos:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/backup-supabase.ps1 -SkipDatabase
+```
+
+To keep downloading anything that works even if one step fails:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/backup-supabase.ps1 -ContinueOnError
 ```
 
 Keep the `backups/` folder private. It can contain job-site records, customer information, and photos.
