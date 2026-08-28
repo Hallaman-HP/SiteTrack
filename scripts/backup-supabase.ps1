@@ -88,10 +88,7 @@ function Export-EmbeddedAssetPhotos {
   $limit = 500
 
   while ($true) {
-    $from = $offset
-    $to = $offset + $limit - 1
-    $headers["Range"] = "$from-$to"
-    $uri = "$($ApiUrl.TrimEnd('/'))/rest/v1/asset_photos?select=id,asset_id,photo_url,caption,created_at&order=created_at.desc"
+    $uri = "$($ApiUrl.TrimEnd('/'))/rest/v1/asset_photos?select=id,asset_id,photo_url,caption,created_at&order=created_at.desc&limit=$limit&offset=$offset"
     $rows = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
     if (-not $rows -or $rows.Count -eq 0) { break }
 
