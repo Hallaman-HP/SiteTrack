@@ -1,0 +1,120 @@
+param(
+  [string]$ProjectRef = "kchmypllwgdpueytaghi",
+  [string]$OutputRoot = "backups",
+  [string[]]$Buckets = @("asset-photos", "profile-avatars"),
+  [string]$DatabasePassword = "",
+  [switch]$SkipDatabase,
+  [switch]$SkipStorage
+)
+
+$ErrorActionPreference = "Stop"
+
+function Write-Step {
+  param([string]$Message)
+  Write-Host ""
+  Write-Host "==> $Message" -ForegroundColor Cyan
+}
+
+function Invoke-Supabase {
+  param([string[]]$Arguments)
+
+  $supabaseCommand = Get-Command supabase -ErrorAction SilentlyContinue
+  if ($supabaseCommand) {
+    & supabase @Arguments
+    return
+  }
+
+  $npxCommand = Get-Command npx -ErrorAction SilentlyContinue
+  if (-not $npxCommand) {
+    throw "Could not find 'supabase' or 'npx' on PATH. Install Node.js/npm, then run this again."
+  }
+
+  & npx supabase @Arguments
+}
+
+function New-BackupReadme {
+  param(
+    [string]$BackupDir,
+    [string]$DatabaseFile,
+    [string[]]$DownloadedBuckets
+  )
+
+  $bucketList = if ($DownloadedBuckets.Count) {
+    ($DownloadedBuckets | ForEach-Object { "- storage/$_" }) -join [Environment]::NewLine
+  } else {
+    "- No storage buckets downloaded"
+  }
+
+  $content = @"
+# SiteTrack Supabase Backup
+
+Created: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
+Project ref: $ProjectRef
+
+## Contents
+
+- database/$([System.IO.Path]::GetFileName($DatabaseFile))
+$bucketList
+- backup-log.txt
+
+## Restore Notes
+
+1. Restore the SQL file into a clean Supabase/Postgres project.
+2. Recreate Storage buckets before uploading files back:
+   - asset-photos
+   - profile-avatars
+3. Upload each bucket folder back to the matching Supabase Storage bucket.
+4. Recheck RLS policies, Auth settings, site memberships, and public URL settings before using production data.
+
+Database dumps contain table rows and database structure, but Storage photos are separate files. Keep this folder private because it may contain customer/job-site data and photos.
+"@
+
+  Set-Content -LiteralPath (Join-Path $BackupDir "README-restore-steps.md") -Value $content -Encoding UTF8
+}
+
+$timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$backupDir = Join-Path $OutputRoot "sitetrack-$timestamp"
+$databaseDir = Join-Path $backupDir "database"
+$storageDir = Join-Path $backupDir "storage"
+$logFile = Join-Path $backupDir "backup-log.txt"
+
+New-Item -ItemType Directory -Force -Path $databaseDir, $storageDir | Out-Null
+
+Start-Transcript -Path $logFile -Append | Out-Null
+
+try {
+  Write-Step "Checking Supabase CLI"
+  Invoke-Supabase -Arguments @("--version")
+
+  $downloadedBuckets = @()
+  $databaseFile = Join-Path $databaseDir "sitetrack-database.sql"
+
+  if (-not $SkipDatabase) {
+    Write-Step "Exporting database"
+    $dbArgs = @("db", "dump", "--project-ref", $ProjectRef, "--file", $databaseFile)
+    if ($DatabasePassword.Trim()) {
+      $dbArgs += @("--password", $DatabasePassword)
+    }
+    Invoke-Supabase -Arguments $dbArgs
+  }
+
+  if (-not $SkipStorage) {
+    foreach ($bucket in $Buckets) {
+      if (-not $bucket.Trim()) { continue }
+
+      Write-Step "Downloading Storage bucket '$bucket'"
+      $bucketDest = Join-Path $storageDir $bucket
+      New-Item -ItemType Directory -Force -Path $bucketDest | Out-Null
+      Invoke-Supabase -Arguments @("storage", "cp", "--recursive", "--project-ref", $ProjectRef, "ss:///$bucket", $bucketDest)
+      $downloadedBuckets += $bucket
+    }
+  }
+
+  New-BackupReadme -BackupDir $backupDir -DatabaseFile $databaseFile -DownloadedBuckets $downloadedBuckets
+
+  Write-Host ""
+  Write-Host "Backup complete:" -ForegroundColor Green
+  Write-Host (Resolve-Path $backupDir)
+} finally {
+  Stop-Transcript | Out-Null
+}
