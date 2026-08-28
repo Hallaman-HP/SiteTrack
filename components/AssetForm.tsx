@@ -109,7 +109,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
   const rooms = useMemo(() => data.rooms.filter((room) => room.building_id === draft.building_id), [data.rooms, draft.building_id]);
   const preview = draft.id ? assetToView({ ...draft, created_at: existing?.created_at ?? "", updated_at: existing?.updated_at ?? "" }, data) : undefined;
   const canEditCurrentAsset = !isSupabaseMode || canEditAllSites || (!!draft.site_id && editableSiteIds?.includes(draft.site_id));
-  const canDeleteCurrentAsset = Boolean(existing) && (!isSupabaseMode || canDeleteAssets(workspace?.role));
+  const canDeleteCurrentAsset = Boolean(existing) && (!isSupabaseMode || workspace?.role === "admin" || canDeleteAssets(workspace?.role) || Boolean(workspace?.manageableSiteIds?.includes(draft.site_id)));
 
   function update<K extends keyof AssetDraft>(key: K, value: AssetDraft[K]) {
     setDraft((current) => {

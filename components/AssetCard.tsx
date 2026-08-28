@@ -9,13 +9,19 @@ import { statusClass, statusLabel } from "@/lib/store";
 export function AssetCard({
   asset,
   canArchive = false,
+  canEdit = false,
+  canDelete = false,
   onArchive,
-  onRestore
+  onRestore,
+  onDelete
 }: {
   asset: AssetView;
   canArchive?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
   onArchive?: (asset: AssetView) => void;
   onRestore?: (asset: AssetView) => void;
+  onDelete?: (asset: AssetView) => void;
 }) {
   const photo = asset.photos[0]?.photo_url;
   return (
@@ -58,8 +64,11 @@ export function AssetCard({
         <AssetActionsMenu
           asset={asset}
           canArchive={canArchive && Boolean(onArchive)}
+          canEdit={canEdit}
+          canDelete={canDelete && Boolean(onDelete)}
           onArchive={(item) => onArchive?.(item)}
           onRestore={(item) => onRestore?.(item)}
+          onDelete={(item) => onDelete?.(item)}
         />
       </div>
     </article>

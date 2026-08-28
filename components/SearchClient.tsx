@@ -4,9 +4,9 @@ import { useMemo, useState } from "react";
 import { AssetCard } from "@/components/AssetCard";
 import { inputClass } from "@/components/Field";
 import { SearchBox } from "@/components/SearchBox";
-import { canDeleteAssets } from "@/lib/roles";
-import { archiveAsset, restoreAsset, searchArchivedAssets, searchAssets } from "@/lib/store";
-import { archiveAssetInSupabase, restoreAssetInSupabase } from "@/lib/supabaseStore";
+import { canEditAssets } from "@/lib/roles";
+import { archiveAsset, deleteAsset, restoreAsset, searchArchivedAssets, searchAssets } from "@/lib/store";
+import { archiveAssetInSupabase, deleteAssetFromSupabase, restoreAssetInSupabase } from "@/lib/supabaseStore";
 import type { AssetView } from "@/lib/types";
 import { useStoreData } from "@/lib/useStoreData";
 
@@ -18,7 +18,7 @@ export function SearchClient() {
   const [siteId, setSiteId] = useState("");
   const [buildingId, setBuildingId] = useState("");
   const [roomId, setRoomId] = useState("");
-  const canArchive = !isSupabaseMode || canDeleteAssets(workspace?.role);
+  const canArchive = !isSupabaseMode || workspace?.role === "admin";
   const sites = useMemo(() => [...data.sites].sort((a, b) => a.name.localeCompare(b.name)), [data.sites]);
   const buildings = useMemo(
     () => data.buildings
@@ -72,6 +72,30 @@ export function SearchClient() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not restore this asset.");
     }
+  }
+
+  async function handleDelete(asset: AssetView) {
+    if (!canDeleteAsset(asset)) return;
+    if (!window.confirm(`Permanently delete ${asset.asset_number} (${asset.item_name})? This will remove photos and history logs.`)) return;
+    setError("");
+    try {
+      if (isSupabaseMode) {
+        await deleteAssetFromSupabase(asset.id);
+        replaceData(deleteAsset(data, asset.id));
+      } else {
+        commit(deleteAsset(data, asset.id));
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete this asset.");
+    }
+  }
+
+  function canEditAsset(asset: AssetView) {
+    return !isSupabaseMode || workspace?.role === "admin" || Boolean(workspace?.editableSiteIds?.includes(asset.site_id)) || canEditAssets(workspace?.role);
+  }
+
+  function canDeleteAsset(asset: AssetView) {
+    return !isSupabaseMode || workspace?.role === "admin" || Boolean(workspace?.manageableSiteIds?.includes(asset.site_id));
   }
 
   return (
@@ -165,7 +189,16 @@ export function SearchClient() {
           </div>
         ) : null}
         {!isLoading ? results.map((asset) => (
-          <AssetCard key={asset.id} asset={asset} canArchive={canArchive} onArchive={handleArchive} onRestore={handleRestore} />
+          <AssetCard
+            key={asset.id}
+            asset={asset}
+            canArchive={canArchive}
+            canEdit={canEditAsset(asset)}
+            canDelete={canDeleteAsset(asset)}
+            onArchive={handleArchive}
+            onRestore={handleRestore}
+            onDelete={handleDelete}
+          />
         )) : null}
         {!isLoading && results.length === 0 ? (
           <div className="rounded-[8px] border border-dashed border-zinc-300 bg-white p-8 text-center text-steel">

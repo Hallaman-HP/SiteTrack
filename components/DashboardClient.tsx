@@ -7,9 +7,9 @@ import { AssetActionsMenu } from "@/components/AssetActionsMenu";
 import { ButtonLink } from "@/components/ButtonLink";
 import { ExportRegisterButton } from "@/components/ExportRegisterButton";
 import { SearchBox } from "@/components/SearchBox";
-import { canDeleteAssets } from "@/lib/roles";
-import { archiveAsset, getActiveAssetViews, getAssetViews, loadStore, resetStore, restoreAsset, searchAssets, statusClass, statusLabel } from "@/lib/store";
-import { archiveAssetInSupabase, restoreAssetInSupabase } from "@/lib/supabaseStore";
+import { canEditAssets } from "@/lib/roles";
+import { archiveAsset, deleteAsset, getActiveAssetViews, getAssetViews, loadStore, resetStore, restoreAsset, searchAssets, statusClass, statusLabel } from "@/lib/store";
+import { archiveAssetInSupabase, deleteAssetFromSupabase, restoreAssetInSupabase } from "@/lib/supabaseStore";
 import type { AssetStatus, AssetView } from "@/lib/types";
 import { useStoreData } from "@/lib/useStoreData";
 
@@ -39,7 +39,7 @@ export function DashboardClient() {
   const issues = assets.filter((asset) => asset.status === "damaged").length;
   const listTitle = query ? "Matches" : assetFilter === "all" ? "All assets" : assetFilter === "issues" ? "Issues" : "Installed assets";
   const canAddAssets = !isSupabaseMode || workspace?.role === "admin" || (workspace?.editableSiteIds?.length ?? 0) > 0;
-  const canArchive = !isSupabaseMode || canDeleteAssets(workspace?.role);
+  const canArchive = !isSupabaseMode || workspace?.role === "admin";
 
   function handleReset() {
     if (isSupabaseMode) {
@@ -78,6 +78,30 @@ export function DashboardClient() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not restore this asset.");
     }
+  }
+
+  async function handleDelete(asset: AssetView) {
+    if (!canDeleteAsset(asset)) return;
+    if (!window.confirm(`Permanently delete ${asset.asset_number} (${asset.item_name})? This will remove photos and history logs.`)) return;
+    setError("");
+    try {
+      if (isSupabaseMode) {
+        await deleteAssetFromSupabase(asset.id);
+        replaceData(deleteAsset(data, asset.id));
+      } else {
+        setData(deleteAsset(data, asset.id));
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete this asset.");
+    }
+  }
+
+  function canEditAsset(asset: AssetView) {
+    return !isSupabaseMode || workspace?.role === "admin" || Boolean(workspace?.editableSiteIds?.includes(asset.site_id)) || canEditAssets(workspace?.role);
+  }
+
+  function canDeleteAsset(asset: AssetView) {
+    return !isSupabaseMode || workspace?.role === "admin" || Boolean(workspace?.manageableSiteIds?.includes(asset.site_id));
   }
 
   return (
@@ -128,7 +152,18 @@ export function DashboardClient() {
           <div className="overflow-hidden rounded-[8px] border border-zinc-200 bg-white shadow-panel">
             {results.length ? (
               <div className="divide-y divide-zinc-100">
-                {results.map((asset) => <AssetListRow key={asset.id} asset={asset} canArchive={canArchive} onArchive={handleArchive} onRestore={handleRestore} />)}
+                {results.map((asset) => (
+                  <AssetListRow
+                    key={asset.id}
+                    asset={asset}
+                    canArchive={canArchive}
+                    canEdit={canEditAsset(asset)}
+                    canDelete={canDeleteAsset(asset)}
+                    onArchive={handleArchive}
+                    onRestore={handleRestore}
+                    onDelete={handleDelete}
+                  />
+                ))}
               </div>
             ) : isLoading ? (
               <div className="p-6 text-sm text-steel">Loading secure asset data...</div>
@@ -191,13 +226,19 @@ function MiniMetric({ label, value, tone, active, onClick }: { label: string; va
 function AssetListRow({
   asset,
   canArchive,
+  canEdit,
+  canDelete,
   onArchive,
-  onRestore
+  onRestore,
+  onDelete
 }: {
   asset: AssetView;
   canArchive: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   onArchive: (asset: AssetView) => void;
   onRestore: (asset: AssetView) => void;
+  onDelete: (asset: AssetView) => void;
 }) {
   return (
     <div className="grid gap-3 p-4 transition hover:bg-zinc-50 sm:grid-cols-[1fr_160px_160px_44px] sm:items-center">
@@ -215,7 +256,7 @@ function AssetListRow({
       <Link href={`/assets/${asset.id}`} className="text-sm font-medium text-steel">{asset.building?.name || "No building"} / {asset.room?.room_number || "No room"}</Link>
       <Link href={`/assets/${asset.id}`} className="truncate text-sm text-steel">{asset.network_patch_number || asset.switch_port || asset.location_in_room || "No patching"}</Link>
       <div className="justify-self-end">
-        <AssetActionsMenu asset={asset} canArchive={canArchive} onArchive={onArchive} onRestore={onRestore} />
+        <AssetActionsMenu asset={asset} canArchive={canArchive} canEdit={canEdit} canDelete={canDelete} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} />
       </div>
     </div>
   );
