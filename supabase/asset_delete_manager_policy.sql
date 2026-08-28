@@ -1,6 +1,9 @@
 -- Allows managers and admins to permanently delete assets from job sites they manage.
 -- Run this in Supabase SQL Editor after the workforce/security schema files.
 
+revoke execute on function public.can_manage_site_access(uuid) from anon, public;
+grant execute on function public.can_manage_site_access(uuid) to authenticated;
+
 drop policy if exists "Admins can delete assets" on assets;
 drop policy if exists "Managers can delete assets" on assets;
 create policy "Managers can delete assets"
