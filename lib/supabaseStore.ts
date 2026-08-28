@@ -119,25 +119,34 @@ export async function loadSupabaseStore(): Promise<SupabaseStoreResult> {
       ? sitesQuery.in("id", assignedSiteIds)
       : null;
 
-  const [sitesResult, buildingsResult, roomsResult, assetsResult] = await Promise.all([
-    scopedSitesQuery ?? Promise.resolve({ data: [], error: null }),
-    supabase.from("buildings").select("*").order("created_at", { ascending: false }),
-    supabase.from("rooms").select("*").order("created_at", { ascending: false }),
+  const sitesResult = await (scopedSitesQuery ?? Promise.resolve({ data: [], error: null }));
+  if (sitesResult.error) throw sitesResult.error;
+  const sites = (sitesResult.data ?? []).map(mapSite);
+  const siteIds = new Set(sites.map((site) => site.id));
+  const siteIdList = Array.from(siteIds);
+
+  const [buildingsResult, assetsResult] = await Promise.all([
+    siteIdList.length
+      ? supabase.from("buildings").select("*").in("site_id", siteIdList).order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
     isAdmin
       ? supabase.from("assets").select("*").eq("workspace_id", workspace.id).order("updated_at", { ascending: false })
       : assignedSiteIds.length
         ? supabase.from("assets").select("*").in("site_id", assignedSiteIds).is("archived_at", null).order("updated_at", { ascending: false })
       : Promise.resolve({ data: [], error: null })
   ]);
+  const primaryError = buildingsResult.error || assetsResult.error;
+  if (primaryError) throw primaryError;
 
-  const error = sitesResult.error || buildingsResult.error || roomsResult.error || assetsResult.error;
-  if (error) throw error;
-
-  const sites = (sitesResult.data ?? []).map(mapSite);
-  const siteIds = new Set(sites.map((site) => site.id));
-  const buildings = (buildingsResult.data ?? []).map(mapBuilding).filter((building) => siteIds.has(building.site_id));
+  const buildings = (buildingsResult.data ?? []).map(mapBuilding);
   const buildingIds = new Set(buildings.map((building) => building.id));
-  const rooms = (roomsResult.data ?? []).map(mapRoom).filter((room) => buildingIds.has(room.building_id));
+  const buildingIdList = Array.from(buildingIds);
+  const roomsResult = await (buildingIdList.length
+    ? supabase.from("rooms").select("*").in("building_id", buildingIdList).order("created_at", { ascending: false })
+    : Promise.resolve({ data: [], error: null }));
+  if (roomsResult.error) throw roomsResult.error;
+
+  const rooms = (roomsResult.data ?? []).map(mapRoom);
   const assets = (assetsResult.data ?? []).map(mapAsset);
   const assetIds = new Set(assets.map((asset) => asset.id));
   const assetIdList = Array.from(assetIds);

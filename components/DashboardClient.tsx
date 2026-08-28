@@ -42,6 +42,10 @@ export function DashboardClient() {
   const canArchive = !isSupabaseMode || canDeleteAssets(workspace?.role);
 
   function handleReset() {
+    if (isSupabaseMode) {
+      replaceData(loadStore());
+      return;
+    }
     resetStore();
     setData(loadStore());
   }

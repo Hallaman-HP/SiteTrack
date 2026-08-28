@@ -258,7 +258,7 @@ export function restoreAsset(data: StoreData, assetId: string, userName = "Site 
 export function saveAsset(data: StoreData, asset: Partial<Asset> & Omit<Asset, "id" | "created_at" | "updated_at">, photoUrl?: string) {
   const existing = asset.id ? data.assets.find((item) => item.id === asset.id) : undefined;
   const timestamp = nowIso();
-  const id = existing?.id ?? uid("asset");
+  const id = existing?.id ?? asset.id ?? uid("asset");
   const nextAsset: Asset = {
     ...asset,
     id,

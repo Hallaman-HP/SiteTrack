@@ -6,7 +6,7 @@ import { Archive, Camera, ChevronDown, MapPin, Network, PackagePlus, RotateCcw, 
 import { Field, inputClass } from "@/components/Field";
 import { canDeleteAssets } from "@/lib/roles";
 import { archiveAsset, assetToView, restoreAsset, saveAsset, saveStore } from "@/lib/store";
-import { archiveAssetInSupabase, loadSupabaseStore, restoreAssetInSupabase, saveAssetToSupabase } from "@/lib/supabaseStore";
+import { archiveAssetInSupabase, restoreAssetInSupabase, saveAssetToSupabase } from "@/lib/supabaseStore";
 import type { Asset, AssetStatus, StoreData } from "@/lib/types";
 import { useStoreData } from "@/lib/useStoreData";
 
@@ -151,9 +151,9 @@ export function AssetForm({ assetId }: { assetId?: string }) {
     try {
       if (isSupabaseMode) {
         const savedId = await saveAssetToSupabase(draft, photoUrl);
-        const fresh = await loadSupabaseStore();
-        replaceData(fresh.data);
-        finishAfterSave(addAnother, savedId, fresh.data);
+        const next = saveAsset(data, { ...draft, id: savedId }, photoUrl);
+        replaceData(next);
+        finishAfterSave(addAnother, savedId, next);
         return;
       }
 
