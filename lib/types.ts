@@ -1,5 +1,5 @@
-export type AssetStatus = "installed" | "removed" | "replaced" | "moved" | "damaged";
-export type ActionType = "Installed" | "Removed" | "Replaced" | "Moved" | "Faulty/Damaged" | "Archived" | "Restored";
+export type AssetStatus = "awaiting_install" | "installed" | "removed" | "replaced" | "moved" | "damaged";
+export type ActionType = "Awaiting Install" | "Installed" | "Removed" | "Replaced" | "Moved" | "Faulty/Damaged" | "Archived" | "Restored";
 
 export type Site = {
   id: string;

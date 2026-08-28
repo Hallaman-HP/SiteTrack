@@ -113,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(await loadCurrentUserProfile(session.user));
       },
       async signOut() {
-        if (supabase) await supabase.auth.signOut();
+        if (supabase) await supabase.auth.signOut({ scope: "local" });
         setSession(null);
         setProfile(null);
       }

@@ -101,11 +101,13 @@ function filterAssetViews(views: AssetView[], term: string) {
 }
 
 export function statusLabel(status: AssetStatus) {
+  if (status === "awaiting_install") return "Awaiting Install";
   return status === "damaged" ? "Faulty/Damaged" : status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 export function statusClass(status: AssetStatus) {
   const classes: Record<AssetStatus, string> = {
+    awaiting_install: "bg-violet-50 text-violet-700 ring-violet-200",
     installed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
     removed: "bg-zinc-100 text-zinc-700 ring-zinc-200",
     replaced: "bg-blue-50 text-blue-700 ring-blue-200",
@@ -295,6 +297,7 @@ export function saveAsset(data: StoreData, asset: Partial<Asset> & Omit<Asset, "
 
 function statusToAction(status: AssetStatus): AssetLog["action_type"] {
   const actions: Record<AssetStatus, AssetLog["action_type"]> = {
+    awaiting_install: "Awaiting Install",
     installed: "Installed",
     removed: "Removed",
     replaced: "Replaced",

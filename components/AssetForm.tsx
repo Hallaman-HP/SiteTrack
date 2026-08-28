@@ -6,13 +6,13 @@ import { Archive, Camera, ChevronDown, MapPin, Network, PackagePlus, RotateCcw, 
 import { Field, inputClass } from "@/components/Field";
 import { canDeleteAssets } from "@/lib/roles";
 import { archiveAsset, assetToView, restoreAsset, saveAsset, saveStore } from "@/lib/store";
-import { archiveAssetInSupabase, restoreAssetInSupabase, saveAssetToSupabase } from "@/lib/supabaseStore";
+import { archiveAssetInSupabase, loadSupabaseStore, restoreAssetInSupabase, saveAssetToSupabase } from "@/lib/supabaseStore";
 import type { Asset, AssetStatus, StoreData } from "@/lib/types";
 import { useStoreData } from "@/lib/useStoreData";
 
 type AssetDraft = Omit<Asset, "created_at" | "updated_at">;
 
-const statuses: AssetStatus[] = ["installed", "removed", "replaced", "moved", "damaged"];
+const statuses: AssetStatus[] = ["awaiting_install", "installed", "removed", "replaced", "moved", "damaged"];
 
 export function AssetForm({ assetId }: { assetId?: string }) {
   const router = useRouter();
@@ -33,6 +33,10 @@ export function AssetForm({ assetId }: { assetId?: string }) {
   const [error, setError] = useState("");
   const [photoMessage, setPhotoMessage] = useState("");
   const [isReadingLabel, setIsReadingLabel] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [photoTextLines, setPhotoTextLines] = useState<string[]>([]);
+  const [selectedPhotoText, setSelectedPhotoText] = useState("");
   const [draft, setDraft] = useState<AssetDraft>(() => ({
     id: existing?.id ?? "",
     asset_number: existing?.asset_number ?? "",
@@ -124,7 +128,12 @@ export function AssetForm({ assetId }: { assetId?: string }) {
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
+    await saveDraft(false);
+  }
+
+  async function saveDraft(addAnother: boolean) {
     setError("");
+    setSuccess("");
     const overlap = findAssetOverlap(data, draft);
     if (overlap) {
       setError(overlap);
@@ -138,10 +147,13 @@ export function AssetForm({ assetId }: { assetId?: string }) {
       setError("Your role can view this job site, but cannot add or edit assets here.");
       return;
     }
+    setIsSaving(true);
     try {
       if (isSupabaseMode) {
         const savedId = await saveAssetToSupabase(draft, photoUrl);
-        router.push(`/assets/${savedId}`);
+        const fresh = await loadSupabaseStore();
+        replaceData(fresh.data);
+        finishAfterSave(addAnother, savedId, fresh.data);
         return;
       }
 
@@ -149,10 +161,27 @@ export function AssetForm({ assetId }: { assetId?: string }) {
       saveStore(next);
       setData(next);
       const savedId = draft.id || next.assets.find((asset) => asset.asset_number === draft.asset_number)?.id;
-      router.push(`/assets/${savedId}`);
+      finishAfterSave(addAnother, savedId, next);
     } catch (caught) {
       setError(getErrorMessage(caught));
+    } finally {
+      setIsSaving(false);
     }
+  }
+
+  function finishAfterSave(addAnother: boolean, savedId: string | undefined, nextData: StoreData) {
+    if (assetId && savedId) {
+      router.push(`/assets/${savedId}`);
+      return;
+    }
+
+    setPhotoUrl("");
+    setPhotoTextLines([]);
+    setSelectedPhotoText("");
+    setPhotoMessage("");
+    setDraft((current) => addAnother ? makeRepeatedAssetDraft(current) : makeBlankAssetDraft(current, nextData, editableSites));
+    setSuccess(addAnother ? "Asset saved. Ready for the next matching item." : "Asset saved. Ready for the next asset.");
+    router.replace("/assets/new");
   }
 
   async function onArchiveAsset() {
@@ -217,6 +246,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
       const result = await (tesseract as any).recognize(photoUrl, "eng");
       const text = result?.data?.text ?? "";
       const extracted = extractNetworkLabel(text);
+      setPhotoTextLines(cleanPhotoTextLines(text));
       setDraft((current) => ({
         ...current,
         mac_address: extracted.mac_address || current.mac_address,
@@ -228,7 +258,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
       setPhotoMessage(
         Object.values(extracted).some(Boolean)
           ? "Label read. I filled the network fields I could detect."
-          : "Label read, but no MAC/IP/port/patch pattern was obvious. Try a closer, brighter label shot."
+          : "Photo read. Select any detected text below and drop it into the right field."
       );
     } catch {
       setPhotoMessage("Could not read this photo in the browser. Try a closer, brighter label shot.");
@@ -238,7 +268,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+    <div className="grid gap-6 pb-28 lg:grid-cols-[1fr_340px]">
       {isLoading ? (
         <section className="rounded-[8px] border border-zinc-200 bg-white p-5 text-steel shadow-panel lg:col-span-2">
           Loading secure site and room options...
@@ -254,7 +284,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
           </p>
         </section>
       ) : null}
-      <form onSubmit={onSubmit} className="overflow-hidden rounded-[8px] border border-zinc-200 bg-white shadow-panel animate-rise">
+      <form id="asset-form" onSubmit={onSubmit} className="overflow-hidden rounded-[8px] border border-zinc-200 bg-white shadow-panel animate-rise">
         <div className="bg-gradient-to-r from-ink via-signal to-mint p-5 text-white sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -262,14 +292,15 @@ export function AssetForm({ assetId }: { assetId?: string }) {
               <h1 className="mt-3 text-3xl font-semibold tracking-tight">{existing ? "Edit asset" : "Add asset"}</h1>
               <p className="mt-1 text-sm text-white/80">Core details first. Everything else can stay tucked away.</p>
           </div>
-            <button disabled={isLoading || (isSupabaseMode && !canEditCurrentAsset)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-white px-4 text-sm font-semibold text-ink shadow-panel transition hover:-translate-y-0.5 disabled:opacity-50">
+            <button disabled={isLoading || isSaving || (isSupabaseMode && !canEditCurrentAsset)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-white px-4 text-sm font-semibold text-ink shadow-panel transition hover:-translate-y-0.5 disabled:opacity-50">
             <Save size={17} />
-              Save
+              {isSaving ? "Saving..." : "Save"}
           </button>
           </div>
         </div>
         <div className="grid gap-5 p-5 sm:p-6">
           {error ? <p className="rounded-[8px] bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
+          {success ? <p className="rounded-[8px] bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{success}</p> : null}
 
           <section className="grid gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink"><PackagePlus size={17} className="text-coral" />What is it?</div>
@@ -338,10 +369,35 @@ export function AssetForm({ assetId }: { assetId?: string }) {
               </button>
               <button type="button" onClick={() => void readLabelFromPhoto()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 shadow-sm transition hover:-translate-y-0.5">
                 <ScanText size={17} />
-                {isReadingLabel ? "Reading..." : "Read From Photo"}
+                {isReadingLabel ? "Reading..." : "Copy Details From Photo"}
               </button>
             </div>
             {photoMessage ? <p className="rounded-[8px] bg-zinc-50 px-3 py-2 text-sm text-steel">{photoMessage}</p> : null}
+            {photoTextLines.length ? (
+              <div className="grid gap-3 rounded-[8px] bg-zinc-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Detected text</p>
+                <div className="flex max-h-40 flex-wrap gap-2 overflow-auto">
+                  {photoTextLines.map((line) => (
+                    <button
+                      key={line}
+                      type="button"
+                      onClick={() => setSelectedPhotoText(line)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${selectedPhotoText === line ? "bg-ink text-white" : "bg-white text-ink shadow-sm hover:-translate-y-0.5"}`}
+                    >
+                      {line}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <PhotoInsertButton label="Serial" disabled={!selectedPhotoText} onClick={() => insertPhotoText("serial_number")} />
+                  <PhotoInsertButton label="MAC" disabled={!selectedPhotoText} onClick={() => insertPhotoText("mac_address")} />
+                  <PhotoInsertButton label="IP" disabled={!selectedPhotoText} onClick={() => insertPhotoText("ip_address")} />
+                  <PhotoInsertButton label="Switch Port" disabled={!selectedPhotoText} onClick={() => insertPhotoText("switch_port")} />
+                  <PhotoInsertButton label="Network Patch" disabled={!selectedPhotoText} onClick={() => insertPhotoText("network_patch_number")} />
+                  <PhotoInsertButton label="Notes" disabled={!selectedPhotoText} onClick={() => insertPhotoText("notes")} />
+                </div>
+              </div>
+            ) : null}
           {photoUrl.startsWith("data:image") ? (
               <div className="overflow-hidden rounded-[8px] border border-zinc-200">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -370,7 +426,7 @@ export function AssetForm({ assetId }: { assetId?: string }) {
               <Field label="Model"><input className={inputClass} value={draft.model} onChange={(e) => update("model", e.target.value)} /></Field>
               <Field label="Status">
                 <select className={inputClass} value={draft.status} onChange={(e) => update("status", e.target.value as AssetStatus)}>
-                  {statuses.map((status) => <option key={status} value={status}>{status === "damaged" ? "Faulty/Damaged" : status}</option>)}
+                  {statuses.map((status) => <option key={status} value={status}>{statusOptionLabel(status)}</option>)}
                 </select>
               </Field>
               <div className="sm:col-span-2">
@@ -418,8 +474,138 @@ export function AssetForm({ assetId }: { assetId?: string }) {
           </div>
         ) : null}
       </aside>
+      <div className="fixed inset-x-0 bottom-[73px] z-40 border-t border-zinc-200 bg-white/90 px-4 py-3 shadow-panel backdrop-blur-xl md:bottom-0">
+        <div className="mx-auto grid max-w-7xl gap-2 sm:flex sm:justify-end">
+          {!existing ? (
+            <button
+              type="button"
+              disabled={isLoading || isSaving || (isSupabaseMode && !canEditCurrentAsset)}
+              onClick={() => void saveDraft(true)}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] border border-zinc-200 bg-white px-4 text-sm font-semibold text-ink shadow-sm transition hover:-translate-y-0.5 disabled:opacity-50"
+            >
+              <PackagePlus size={17} />
+              Add Another
+            </button>
+          ) : null}
+          <button
+            type="submit"
+            form="asset-form"
+            disabled={isLoading || isSaving || (isSupabaseMode && !canEditCurrentAsset)}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-ink px-5 text-sm font-semibold text-white shadow-panel transition hover:-translate-y-0.5 disabled:opacity-50"
+          >
+            <Save size={17} />
+            {isSaving ? "Saving..." : existing ? "Save Changes" : "Save Asset"}
+          </button>
+        </div>
+      </div>
     </div>
   );
+
+  function insertPhotoText(key: keyof Pick<AssetDraft, "serial_number" | "mac_address" | "ip_address" | "switch_port" | "network_patch_number" | "notes">) {
+    if (!selectedPhotoText) return;
+    setDraft((current) => ({
+      ...current,
+      [key]: key === "notes" && current.notes ? `${current.notes}\n${selectedPhotoText}` : selectedPhotoText
+    }));
+    setPhotoMessage(`Copied "${selectedPhotoText}" into ${fieldLabel(key)}.`);
+  }
+}
+
+function PhotoInsertButton({ disabled, label, onClick }: { disabled: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="min-h-10 rounded-[8px] bg-white px-3 text-xs font-semibold text-ink shadow-sm transition hover:-translate-y-0.5 disabled:opacity-40"
+    >
+      Put in {label}
+    </button>
+  );
+}
+
+function makeRepeatedAssetDraft(current: AssetDraft): AssetDraft {
+  return {
+    ...current,
+    id: "",
+    asset_number: "",
+    serial_number: "",
+    mac_address: "",
+    ip_address: "",
+    switch_port: "",
+    network_patch_number: "",
+    patching_details: "",
+    notes: "",
+    archived_at: undefined,
+    archived_by: undefined,
+    archived_reason: undefined
+  };
+}
+
+function makeBlankAssetDraft(current: AssetDraft, data: StoreData, editableSites: StoreData["sites"]): AssetDraft {
+  const site = editableSites.find((item) => item.id === current.site_id) ?? editableSites[0];
+  const building = data.buildings.find((item) => item.site_id === site?.id);
+  const room = data.rooms.find((item) => item.building_id === building?.id);
+  return {
+    ...current,
+    id: "",
+    asset_number: "",
+    serial_number: "",
+    item_name: "",
+    item_type: "",
+    brand: "",
+    model: "",
+    mac_address: "",
+    ip_address: "",
+    switch_port: "",
+    network_patch_number: "",
+    site_id: site?.id ?? "",
+    building_id: building?.id ?? "",
+    room_id: room?.id ?? "",
+    location_in_room: "",
+    patching_details: "",
+    status: "installed",
+    notes: "",
+    archived_at: undefined,
+    archived_by: undefined,
+    archived_reason: undefined
+  };
+}
+
+function cleanPhotoTextLines(text: string) {
+  const usefulPatterns = [
+    /(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}/i,
+    /(?:\d{1,3}\.){3}\d{1,3}/,
+    /\b(?:SN|S\/N|SERIAL|MAC|IP|PORT|PATCH|PP|SW)\b/i,
+    /\b[A-Z]{1,5}[- ]?\d+[A-Z0-9./-]*\b/i
+  ];
+
+  return Array.from(new Set(
+    text
+      .split(/\r?\n| {2,}/)
+      .map((line) => line.replace(/[^\w\s:./-]/g, " ").replace(/\s+/g, " ").trim())
+      .filter((line) => line.length >= 3 && line.length <= 48)
+      .filter((line) => usefulPatterns.some((pattern) => pattern.test(line)))
+      .slice(0, 18)
+  ));
+}
+
+function statusOptionLabel(status: AssetStatus) {
+  if (status === "awaiting_install") return "Awaiting Install";
+  if (status === "damaged") return "Faulty/Damaged";
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function fieldLabel(key: keyof Pick<AssetDraft, "serial_number" | "mac_address" | "ip_address" | "switch_port" | "network_patch_number" | "notes">) {
+  const labels: Record<typeof key, string> = {
+    serial_number: "serial number",
+    mac_address: "MAC address",
+    ip_address: "IP number",
+    switch_port: "switch port",
+    network_patch_number: "network patch",
+    notes: "notes"
+  };
+  return labels[key];
 }
 
 function findAssetOverlap(data: StoreData, draft: AssetDraft) {

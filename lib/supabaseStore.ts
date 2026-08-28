@@ -7,6 +7,7 @@ import type { Asset, AssetLog, AssetPhoto, AssetStatus, Building, Room, Site, St
 
 const activeWorkspaceKey = "sitetrack-active-workspace-id";
 let storeCache: { key: string; result: SupabaseStoreResult; loadedAt: number } | null = null;
+let workspaceGateCache: { key: string; result: WorkspaceGate } | null = null;
 
 export type WorkspaceSummary = {
   id: string;
@@ -57,6 +58,7 @@ export function clearActiveWorkspaceId() {
 
 export function clearSupabaseStoreCache() {
   storeCache = null;
+  workspaceGateCache = null;
 }
 
 export async function loadSupabaseStore(): Promise<SupabaseStoreResult> {
@@ -179,6 +181,10 @@ export async function loadWorkspaceGate(): Promise<WorkspaceGate> {
   if (userError) throw userError;
   const userId = userData.user?.id;
   if (!userId) return { hasWorkspace: false, canAddAssets: false };
+  const cacheKey = `${userId}:${getActiveWorkspaceId()}`;
+  if (workspaceGateCache?.key === cacheKey) {
+    return workspaceGateCache.result;
+  }
 
   const { data: memberships, error: memberError } = await supabase
     .from("workspace_members")
@@ -188,8 +194,16 @@ export async function loadWorkspaceGate(): Promise<WorkspaceGate> {
   if (memberError) throw memberError;
 
   const role = memberships?.[0]?.role;
-  if (!role) return { hasWorkspace: false, canAddAssets: false };
-  if (role === "admin") return { hasWorkspace: true, canAddAssets: true };
+  if (!role) {
+    const result = { hasWorkspace: false, canAddAssets: false };
+    workspaceGateCache = { key: cacheKey, result };
+    return result;
+  }
+  if (role === "admin") {
+    const result = { hasWorkspace: true, canAddAssets: true };
+    workspaceGateCache = { key: cacheKey, result };
+    return result;
+  }
 
   const { data: siteMemberships, error: siteError } = await supabase
     .from("site_members")
@@ -197,10 +211,12 @@ export async function loadWorkspaceGate(): Promise<WorkspaceGate> {
     .eq("user_id", userId);
   if (siteError) throw siteError;
 
-  return {
+  const result = {
     hasWorkspace: true,
     canAddAssets: (siteMemberships ?? []).some((membership: any) => canEditAssets(membership.role))
   };
+  workspaceGateCache = { key: cacheKey, result };
+  return result;
 }
 
 export async function saveSupabaseStore(data: StoreData, workspaceId = getActiveWorkspaceId()) {
@@ -549,6 +565,7 @@ function toLogRow(log: AssetLog) {
 
 function statusToAction(status: AssetStatus): AssetLog["action_type"] {
   const actions: Record<AssetStatus, AssetLog["action_type"]> = {
+    awaiting_install: "Awaiting Install",
     installed: "Installed",
     removed: "Removed",
     replaced: "Replaced",

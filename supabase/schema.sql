@@ -28,10 +28,10 @@ create table if not exists rooms (
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'asset_status') then
-    create type asset_status as enum ('installed', 'removed', 'replaced', 'moved', 'damaged');
+    create type asset_status as enum ('awaiting_install', 'installed', 'removed', 'replaced', 'moved', 'damaged');
   end if;
   if not exists (select 1 from pg_type where typname = 'asset_action_type') then
-    create type asset_action_type as enum ('Installed', 'Removed', 'Replaced', 'Moved', 'Faulty/Damaged');
+    create type asset_action_type as enum ('Awaiting Install', 'Installed', 'Removed', 'Replaced', 'Moved', 'Faulty/Damaged', 'Archived', 'Restored');
   end if;
 end $$;
 
