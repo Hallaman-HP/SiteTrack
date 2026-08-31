@@ -121,8 +121,9 @@ final class StoreController
 
         // Photos + logs, filtered to visible assets.
         if ($isAdmin) {
+            // Metadata only — photo_url (LONGTEXT/base64) fetched on demand via /api/photo?id=
             $photoRows = Db::all(
-                'SELECT p.* FROM asset_photos p JOIN assets a ON a.id = p.asset_id WHERE a.workspace_id = ? ORDER BY p.created_at DESC',
+                'SELECT p.id, p.asset_id, p.caption, p.created_at FROM asset_photos p JOIN assets a ON a.id = p.asset_id WHERE a.workspace_id = ? ORDER BY p.created_at DESC',
                 [$workspace['id']]
             );
             $logRows = Db::all(
@@ -130,7 +131,7 @@ final class StoreController
                 [$workspace['id']]
             );
         } elseif ($assetIds) {
-            $photoRows = Db::all('SELECT * FROM asset_photos WHERE asset_id IN (' . Util::inClause($assetIds) . ') ORDER BY created_at DESC', $assetIds);
+            $photoRows = Db::all('SELECT id, asset_id, caption, created_at FROM asset_photos WHERE asset_id IN (' . Util::inClause($assetIds) . ') ORDER BY created_at DESC', $assetIds);
             $logRows = Db::all('SELECT * FROM asset_logs WHERE asset_id IN (' . Util::inClause($assetIds) . ') ORDER BY created_at DESC', $assetIds);
         } else {
             $photoRows = [];
@@ -254,10 +255,12 @@ final class StoreController
 
     public static function mapPhoto(array $row): array
     {
+        // photo_url is now a lazy endpoint reference; the actual data URL/blob is
+        // served by GET /api/photo?id=<id> so /api/store payloads stay small.
         return [
             'id' => $row['id'],
             'asset_id' => $row['asset_id'],
-            'photo_url' => Util::s($row['photo_url']),
+            'photo_url' => '/api/photo?id=' . rawurlencode((string)$row['id']),
             'caption' => Util::s($row['caption']),
             'created_at' => Util::isoTime($row['created_at']),
         ];

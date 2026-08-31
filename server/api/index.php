@@ -23,6 +23,7 @@ require __DIR__ . '/src/WorkspaceController.php';
 require __DIR__ . '/src/MemberController.php';
 require __DIR__ . '/src/SiteController.php';
 require __DIR__ . '/src/AssetController.php';
+require __DIR__ . '/src/PhotoController.php';
 
 Env::load(dirname(__DIR__) . '/.env');
 
@@ -67,6 +68,9 @@ $routes = [
     'POST /auth/change-password' => ['AuthController', 'changePassword'],
     'POST /auth/reset-request' => ['AuthController', 'resetRequest'],
     'POST /auth/reset-confirm' => ['AuthController', 'resetConfirm'],
+
+    // Photos (lazy fetch to keep /api/store lean)
+    'GET /photo' => ['PhotoController', 'serve'],
 
     // Profiles
     'POST /profile/update' => ['ProfileController', 'update'],

@@ -97,13 +97,24 @@ function toDbDatetime(?string $value): ?string
     }
 }
 
-/** Empty/whitespace-only string -> NULL, otherwise the trimmed-right string. */
+/**
+ * Empty/whitespace-only string -> NULL, otherwise the value.
+ * Also treats the literal strings 'null', 'NULL', and 'undefined' as NULL —
+ * Supabase CSV exports serialise missing values as the four-character token
+ * "null", and JS-side exports sometimes serialise them as "undefined".
+ * Without this normalisation those strings land in MySQL as varchars and
+ * appear literally in the UI (e.g. dashboard cards showing "null").
+ */
 function emptyToNull(?string $value): ?string
 {
     if ($value === null) {
         return null;
     }
-    return $value === '' ? null : $value;
+    $trimmed = trim($value);
+    if ($trimmed === '' || $trimmed === 'null' || $trimmed === 'NULL' || $trimmed === 'undefined') {
+        return null;
+    }
+    return $value;
 }
 
 /**
