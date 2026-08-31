@@ -14,3 +14,8 @@ RewriteRule ^\.env - [F,L]
 # Route everything under /api to the front controller.
 RewriteCond %{REQUEST_URI} !/api/index\.php$
 RewriteRule ^ index.php [L]
+
+# Apache request body cap — photos are base64-embedded in the JSON POST body.
+# Client-side compression targets 200 KB; 12 MB leaves generous headroom.
+# LimitRequestBody accepts bytes: 12 * 1024 * 1024 = 12582912.
+LimitRequestBody 12582912

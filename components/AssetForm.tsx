@@ -10,6 +10,7 @@ import { archiveAsset, assetToView, deleteAsset, restoreAsset, saveAsset, saveSt
 import { archiveAssetInSupabase, deleteAssetFromSupabase, restoreAssetInSupabase, saveAssetToSupabase } from "@/lib/supabaseStore";
 import type { Asset, AssetStatus, StoreData } from "@/lib/types";
 import { useStoreData } from "@/lib/useStoreData";
+import { compressImageToDataUrl } from "@/lib/imageCompression";
 
 type AssetDraft = Omit<Asset, "created_at" | "updated_at">;
 
@@ -247,14 +248,29 @@ export function AssetForm({ assetId }: { assetId?: string }) {
     }
   }
 
-  function handlePhotoFile(file?: File) {
+  async function handlePhotoFile(file?: File) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPhotoUrl(String(reader.result));
-      setPhotoMessage("Photo attached. Save the asset to keep it in the record.");
-    };
-    reader.readAsDataURL(file);
+    setPhotoMessage("Compressing photo…");
+    try {
+      const compressed = await compressImageToDataUrl(file, {
+        maxDimension: 1600,
+        targetBytes: 200 * 1024,
+        minQuality: 0.5
+      });
+      setPhotoUrl(compressed.dataUrl);
+      const kb = Math.round(compressed.bytes / 1024);
+      setPhotoMessage(
+        `Photo attached (${kb} KB${compressed.wasShrunk ? ", resized" : ""}). Save the asset to keep it in the record.`
+      );
+    } catch (err) {
+      // Fallback: original behaviour if compression fails (rare — SVG, HEIC on old browsers, etc.).
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPhotoUrl(String(reader.result));
+        setPhotoMessage("Photo attached (uncompressed). Save the asset to keep it in the record.");
+      };
+      reader.readAsDataURL(file);
+    }
   }
 
   async function readLabelFromPhoto() {
