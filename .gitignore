@@ -13,3 +13,4 @@ e2e/photo.jpg
 server/.env
 server/uploads-dev
 tsconfig.tsbuildinfo
+backups
